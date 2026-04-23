@@ -1,0 +1,122 @@
+{
+  "bhom": {
+    "event_count": 1000,
+    "path": "BHOM_20260423110000-20260423120000.json",
+    "reported_total": 1663,
+    "responses": 1
+  },
+  "comparison": {
+    "ambiguous_count": 6,
+    "coverage_pct": 68.92,
+    "critical_events_in_truesight": 74,
+    "matched_count": 51,
+    "top_unmatched_object_classes": [
+      {
+        "count": 6,
+        "object_class": "CONTROLM_Enterprise_Manager"
+      },
+      {
+        "count": 2,
+        "object_class": "CHECK_NON_EVENT"
+      },
+      {
+        "count": 2,
+        "object_class": "HTTP-create_event_json"
+      },
+      {
+        "count": 2,
+        "object_class": "MANUAL_EVENT"
+      },
+      {
+        "count": 2,
+        "object_class": "NUK_FileSystem"
+      },
+      {
+        "count": 2,
+        "object_class": "WH_POSTGRES"
+      },
+      {
+        "count": 1,
+        "object_class": "SCOM_CONNECT"
+      }
+    ],
+    "unmatched_count": 17
+  },
+  "issues": [
+    {
+      "column": 2798,
+      "kind": "invalid_json",
+      "line": 1560,
+      "message": "Expecting ',' delimiter: line 1560 column 2798 (char 56935)",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 1560,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 2400,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 2715,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 5190,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 6675,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 8310,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 13800,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "field": "msg",
+      "kind": "recovered_field",
+      "line": 21765,
+      "message": "Recovered field with loose string parsing.",
+      "source": "truesight"
+    },
+    {
+      "kind": "partial_export",
+      "materialized_hits": 1000,
+      "message": "Export contains fewer materialized hits than the reported total.",
+      "reported_total": 1663,
+      "source": "bhom"
+    }
+  ],
+  "truesight": {
+    "event_count": 1478,
+    "parser": "line_recovery",
+    "path": "truesight_20260423110000-20260423120000.json"
+  }
+}

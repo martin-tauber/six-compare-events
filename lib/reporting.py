@@ -360,6 +360,8 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     .summary-cards .card {{
       min-width: 0;
       padding: 12px;
+      display: flex;
+      flex-direction: column;
     }}
     .card .label {{
       color: var(--muted);
@@ -382,6 +384,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     }}
     .summary-cards .meta {{
       font-size: 11px;
+    }}
+    .summary-cards .label {{
+      min-height: 2.6em;
+      display: flex;
+      align-items: flex-start;
     }}
     .tabs {{
       display: flex;

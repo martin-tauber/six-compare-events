@@ -621,8 +621,31 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       justify-content: space-between;
       gap: 16px;
     }}
+    .id-copy {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .id-copy.id-right {{
+      justify-content: flex-end;
+    }}
     .id-right {{
       text-align: right;
+    }}
+    .copyable-id {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .copy-id-button {{
+      font-size: inherit;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      cursor: pointer;
+      user-select: none;
     }}
     .issue-banner {{
       display: flex;
@@ -917,6 +940,22 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const renderStack = (value) => Array.isArray(value)
           ? `<div class="stack-list">${{value.map(item => `<div>${{escapeHtml(item || "-")}}</div>`).join("")}}</div>`
           : escapeHtml(value || "-");
+        const renderCopyableIdentifier = (value, label) => {{
+          const identifier = value || "";
+          const text = escapeHtml(identifier || "-");
+          if (!identifier) {{
+            return `<span>${{text}}</span>`;
+          }}
+          return `
+            <span class="copyable-id">
+              <span>${{text}}</span>
+              <span class="copy-id-button" title="${{escapeAttribute(label)}}" aria-label="${{escapeAttribute(label)}}" role="button" tabindex="0" data-copy-value="${{escapeAttribute(identifier)}}">&#x2398;</span>
+            </span>
+          `;
+        }};
+        const renderIdentifierStack = (values, label) => Array.isArray(values)
+          ? `<div class="stack-list">${{values.map(item => `<div>${{renderCopyableIdentifier(item, label)}}</div>`).join("")}}</div>`
+          : renderCopyableIdentifier(values, label);
         const renderStatusWithIndicator = (value, alignment) => {{
           const statusClass = alignment === "match" ? "match" : "mismatch";
           const statusIcon = alignment === "match" ? "&#10003;" : "&#10005;";
@@ -946,6 +985,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
               return [
                 escapeHtml(row.truesight_notification_type || "-"),
                 escapeHtml(row.bhom_notification_type || "-"),
+              ];
+            case "ambiguous":
+              return [
+                truesightSeverityValue,
+                renderIdentifierStack(row.bhom_severity, "Copy BHOM event ID"),
               ];
             default:
               return [
@@ -988,11 +1032,17 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         idRow.innerHTML = `
           <td colspan="${{columnCount}}">
             <div class="id-strip">
-              <div>${{escapeHtml(row.truesight_event_id || "-")}}</div>
-              <div class="id-right">${{escapeHtml(row.bhom_event_id || "")}}</div>
+              <div class="id-copy">
+                ${{renderCopyableIdentifier(row.truesight_event_id, "Copy Truesight event ID")}}
+              </div>
+              <div class="id-copy id-right">
+                ${{row.bhom_event_id ? renderCopyableIdentifier(row.bhom_event_id, "Copy BHOM event ID") : ""}}
+              </div>
             </div>
           </td>
         `;
+        bindCopyButtons(tr);
+        bindCopyButtons(idRow);
         tbody.appendChild(idRow);
       }}
 
@@ -1008,6 +1058,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         .replaceAll(">", "&gt;");
     }}
 
+    function escapeAttribute(value) {{
+      return escapeHtml(value)
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }}
+
     function formatScoreBreakdown(scoreBreakdown) {{
       return Object.entries(scoreBreakdown)
         .map(([key, value]) => `${{key}}: +${{value}}`)
@@ -1019,6 +1075,39 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         return formatScoreBreakdown(row.details.score_breakdown);
       }}
       return row.reason || "-";
+    }}
+
+    async function copyToClipboard(text) {{
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        await navigator.clipboard.writeText(text);
+        return;
+      }}
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }}
+
+    function bindCopyButtons(container) {{
+      for (const copyButton of container.querySelectorAll(".copy-id-button")) {{
+        const triggerCopy = async () => {{
+          const value = copyButton.getAttribute("data-copy-value") || "";
+          if (!value) return;
+          await copyToClipboard(value);
+        }};
+        copyButton.addEventListener("click", triggerCopy);
+        copyButton.addEventListener("keydown", async (event) => {{
+          if (event.key === "Enter" || event.key === " ") {{
+            event.preventDefault();
+            await triggerCopy();
+          }}
+        }});
+      }}
     }}
 
     function openReasonModal(title, text) {{

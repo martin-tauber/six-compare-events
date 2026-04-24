@@ -34,7 +34,7 @@ class ReportingTests(unittest.TestCase):
                 "unmatched_count": 1,
                 "critical_match_pct": 60.0,
             },
-            "issues": [],
+            "issues": [{"kind": "partial_export", "materialized_hits": 20, "reported_total": 30}],
         }
         truesight_to_bhom = {
             "matched_to_critical": [
@@ -173,6 +173,9 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Only mismatches", html)
         self.assertIn("All lines", html)
         self.assertIn("Overall coverage", html)
+        self.assertIn("issue-banner", html)
+        self.assertIn("issue-icon", html)
+        self.assertIn("BHOM export is partial", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)
         self.assertIn("75.00% coverage", html)

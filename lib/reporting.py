@@ -600,6 +600,27 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     .id-right {{
       text-align: right;
     }}
+    .issue-banner {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      color: #f2cc60;
+    }}
+    .issue-icon {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(242, 204, 96, .18);
+      border: 1px solid rgba(242, 204, 96, .45);
+      color: #f2cc60;
+      font-size: 12px;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }}
     .reason-modal {{
       position: fixed;
       inset: 0;
@@ -713,7 +734,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <div class="card"><div class="label">No BHOM candidate</div><div class="value">{ts_summary['unmatched_count']}</div></div>
         <div class="card"><div class="label">Overall coverage</div><div class="value">{overall_coverage}</div></div>
       </div>
-      <p class="subtle" style="margin:16px 0 0;">{escape(issue_note) if issue_note else ''}</p>
+      {f'<div class="issue-banner"><span class="issue-icon">!</span><span>{escape(issue_note)}</span></div>' if issue_note else ''}
     </section>
 
     <section class="panel">

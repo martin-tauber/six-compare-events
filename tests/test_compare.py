@@ -398,6 +398,67 @@ END
         self.assertEqual("ONCALL", result["matched"][0]["bhom_event"]["notification_type"])
         self.assertEqual("mismatch", result["matched"][0]["notification_alignment"])
 
+    def test_notification_undefined_in_bhom_is_treated_as_not_set(self) -> None:
+        truesight_payload = """PATROL_EV;
+\tevent_handle='ts-8';
+\tmc_ueid='ts-ueid-8';
+\tmc_host=swppro1;
+\tmc_object_class=TKS_OSCMD;
+\tmc_object='BME_LZ_MSG_WATCH';
+\tmc_parameter=OScoll;
+\tmc_incident_time=1776945829;
+\tstatus=OPEN;
+\tseverity=CRITICAL;
+\tmsg='Disk alert';
+\tp_instance='BME_LZ_MSG_WATCH';
+\tresp=4005;
+\talarm_type=MANUAL;
+\tresp_type=UNDEFINED;
+\twith_ars=UNDEFINED;
+\tmsg_ident='BME_LZ_MSG_WATCH';
+END
+"""
+        bhom_payload = {
+            "responses": [
+                {
+                    "hits": {
+                        "total": {"value": 1, "relation": "eq"},
+                        "hits": [
+                            {
+                                "_source": {
+                                    "creation_time": 1776945829000,
+                                    "severity": "CRITICAL",
+                                    "status": "OPEN",
+                                    "object_class": "TKS_OSCMD",
+                                    "object": "BME_LZ_MSG_WATCH",
+                                    "source_hostname": "swppro1.dmz.six-group.net",
+                                    "_identifier": "bhom-8",
+                                    "six_notification_group": "4005",
+                                    "six_notification_type": "UNDEFINED",
+                                    "msg": "Disk alert",
+                                }
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            truesight_path = temp_path / "truesight.baroc"
+            bhom_path = temp_path / "bhom.json"
+            truesight_path.write_text(truesight_payload)
+            bhom_path.write_text(json.dumps(bhom_payload))
+
+            truesight = load_truesight_events(truesight_path)
+            bhom = load_bhom_events(bhom_path)
+            result = compare_critical_presence(truesight.events, bhom.events)
+
+        self.assertEqual("", result["matched"][0]["truesight_event"]["notification_type"])
+        self.assertEqual("UNDEFINED", result["matched"][0]["bhom_event"]["notification_type"])
+        self.assertEqual("match", result["matched"][0]["notification_alignment"])
+
 
 if __name__ == "__main__":
     unittest.main()

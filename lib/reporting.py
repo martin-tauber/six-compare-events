@@ -332,6 +332,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       gap: 12px;
       margin-top: 18px;
     }}
+    .summary-cards {{
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+    }}
     .meta-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -354,6 +357,10 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       border-radius: 12px;
       padding: 14px;
     }}
+    .summary-cards .card {{
+      min-width: 0;
+      padding: 12px;
+    }}
     .card .label {{
       color: var(--muted);
       font-size: 12px;
@@ -369,6 +376,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       margin-top: 6px;
       color: var(--muted);
       font-size: 12px;
+    }}
+    .summary-cards .value {{
+      font-size: 24px;
+    }}
+    .summary-cards .meta {{
+      font-size: 11px;
     }}
     .tabs {{
       display: flex;
@@ -462,6 +475,23 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       display: flex;
       flex-direction: column;
       gap: 4px;
+    }}
+    .comparison-value {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .status-indicator {{
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }}
+    .status-indicator.match {{
+      color: #8ddb8c;
+    }}
+    .status-indicator.mismatch,
+    .status-indicator.missing {{
+      color: #f85149;
     }}
     .score-column {{
       width: 1%;
@@ -590,6 +620,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       padding: 10px 14px;
       white-space: nowrap;
     }}
+    @media (max-width: 1380px) {{
+      .summary-cards {{
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }}
+    }}
   </style>
 </head>
 <body>
@@ -619,7 +654,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <div class="subtle">End: {escape(format_header_timestamp(str(bhom_meta.get('end_time', ''))))}</div>
         </div>
       </div>
-      <div class="cards">
+      <div class="cards summary-cards">
         <div class="card"><div class="label">Truesight critical</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>
         <div class="card"><div class="label">Matched to BHOM</div><div class="value">{ts_summary['matched_count']}</div><div class="meta">{coverage_percent(ts_summary['matched_count'], critical_total)} coverage</div></div>
         <div class="card"><div class="label">Severity mismatch</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div><div class="meta">{severity_alignment_coverage} coverage</div></div>
@@ -758,6 +793,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const renderStack = (value) => Array.isArray(value)
           ? `<div class="stack-list">${{value.map(item => `<div>${{escapeHtml(item || "-")}}</div>`).join("")}}</div>`
           : escapeHtml(value || "-");
+        const renderStatusWithIndicator = (value, alignment) => {{
+          const statusClass = alignment === "match" ? "match" : "mismatch";
+          const statusIcon = alignment === "match" ? "&#10003;" : "&#10005;";
+          return `<span class="comparison-value">${{value}}<span class="status-indicator ${{statusClass}}">${{statusIcon}}</span></span>`;
+        }};
         const bhomSeverityValue = row.kind === "matched"
           ? `<span class="pill ${{row.bhom_severity === "CRITICAL" ? "critical" : "noncritical"}}">${{row.bhom_severity || "-"}}</span>`
           : renderStack(row.bhom_severity);
@@ -767,11 +807,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
             case "matched":
               return [
                 truesightSeverityValue,
-                bhomSeverityValue,
+                renderStatusWithIndicator(bhomSeverityValue, row.severity_alignment === "critical" ? "match" : "mismatch"),
                 escapeHtml(row.truesight_responsibility || "-"),
-                escapeHtml(row.bhom_responsibility || "-"),
+                renderStatusWithIndicator(escapeHtml(row.bhom_responsibility || "-"), row.responsibility_alignment),
                 escapeHtml(row.truesight_notification_type || "-"),
-                escapeHtml(row.bhom_notification_type || "-"),
+                renderStatusWithIndicator(escapeHtml(row.bhom_notification_type || "-"), row.notification_alignment),
               ];
             case "responsibility-mismatch":
               return [

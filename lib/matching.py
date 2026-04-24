@@ -389,8 +389,8 @@ def compare_responsibility(left: CanonicalEvent, right: CanonicalEvent) -> str:
 
 
 def compare_notification_type(left: CanonicalEvent, right: CanonicalEvent) -> str:
-    left_type = normalize_text(left.notification_type)
-    right_type = normalize_text(right.notification_type)
+    left_type = normalize_notification_type(left.notification_type)
+    right_type = normalize_notification_type(right.notification_type)
     if not left_type and not right_type:
         return "match"
     if not left_type:
@@ -400,6 +400,13 @@ def compare_notification_type(left: CanonicalEvent, right: CanonicalEvent) -> st
     if left_type == right_type:
         return "match"
     return "mismatch"
+
+
+def normalize_notification_type(value: str) -> str:
+    normalized = normalize_text(value)
+    if normalized == "undefined":
+        return ""
+    return normalized
 
 
 def top_unmatched_object_classes(unmatched: list[dict[str, object]], event_key: str) -> list[dict[str, object]]:

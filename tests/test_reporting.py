@@ -166,6 +166,8 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("BHOM responsibility", html)
         self.assertIn("Expected notification type", html)
         self.assertIn("BHOM notification type", html)
+        self.assertIn("status-indicator", html)
+        self.assertIn("comparison-value", html)
         self.assertIn("Overall coverage", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)

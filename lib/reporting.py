@@ -405,6 +405,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       border-radius: 10px;
       padding: 10px 12px;
     }}
+    #table-container {{
+      overflow-x: auto;
+    }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -693,14 +696,56 @@ def render_browser_html(payload: dict[str, Any]) -> str:
 
       const tableContainer = document.getElementById("table-container");
       const table = document.createElement("table");
-      const comparisonHeader = section.id === "ambiguous" ? "Identifier" : "BHOM severity";
+      const columnConfig = (() => {{
+        switch (section.id) {{
+          case "matched":
+            return {{
+              comparisonColumns: [
+                "Truesight severity",
+                "BHOM severity",
+                "Truesight responsibility",
+                "BHOM responsibility",
+                "Expected notification type",
+                "BHOM notification type",
+              ],
+            }};
+          case "responsibility-mismatch":
+            return {{
+              comparisonColumns: [
+                "Truesight responsibility",
+                "BHOM responsibility",
+              ],
+            }};
+          case "notification-mismatch":
+            return {{
+              comparisonColumns: [
+                "Expected notification type",
+                "BHOM notification type",
+              ],
+            }};
+          case "ambiguous":
+            return {{
+              comparisonColumns: [
+                "Truesight severity",
+                "Identifier",
+              ],
+            }};
+          default:
+            return {{
+              comparisonColumns: [
+                "Truesight severity",
+                "BHOM severity",
+              ],
+            }};
+        }}
+      }})();
+      const columnCount = 2 + columnConfig.comparisonColumns.length + 2;
       table.innerHTML = `
         <thead>
           <tr>
             <th>Host</th>
             <th class="message-column">Message</th>
-            <th>Truesight severity</th>
-            <th>${{comparisonHeader}}</th>
+            ${{columnConfig.comparisonColumns.map(header => `<th>${{header}}</th>`).join("")}}
             <th class="score-column">Score</th>
             <th class="details-column"></th>
           </tr>
@@ -713,12 +758,38 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const renderStack = (value) => Array.isArray(value)
           ? `<div class="stack-list">${{value.map(item => `<div>${{escapeHtml(item || "-")}}</div>`).join("")}}</div>`
           : escapeHtml(value || "-");
-        const severityAlignment = row.kind === "matched"
+        const bhomSeverityValue = row.kind === "matched"
           ? `<span class="pill ${{row.bhom_severity === "CRITICAL" ? "critical" : "noncritical"}}">${{row.bhom_severity || "-"}}</span>`
           : renderStack(row.bhom_severity);
-        const responsibilityAlignment = row.kind === "matched"
-          ? `<span class="pill ${{row.responsibility_alignment}}">${{escapeHtml(row.responsibility_alignment || "-")}}</span>`
-          : escapeHtml(row.responsibility_alignment || "-");
+        const truesightSeverityValue = `<span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span>`;
+        const comparisonCells = (() => {{
+          switch (section.id) {{
+            case "matched":
+              return [
+                truesightSeverityValue,
+                bhomSeverityValue,
+                escapeHtml(row.truesight_responsibility || "-"),
+                escapeHtml(row.bhom_responsibility || "-"),
+                escapeHtml(row.truesight_notification_type || "-"),
+                escapeHtml(row.bhom_notification_type || "-"),
+              ];
+            case "responsibility-mismatch":
+              return [
+                escapeHtml(row.truesight_responsibility || "-"),
+                escapeHtml(row.bhom_responsibility || "-"),
+              ];
+            case "notification-mismatch":
+              return [
+                escapeHtml(row.truesight_notification_type || "-"),
+                escapeHtml(row.bhom_notification_type || "-"),
+              ];
+            default:
+              return [
+                truesightSeverityValue,
+                bhomSeverityValue,
+              ];
+          }}
+        }})();
         const reasonText = formatReason(row);
         const scoreOrReason = row.kind === "matched"
           ? `
@@ -732,8 +803,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         tr.innerHTML = `
           <td>${{escapeHtml(row.host || "-")}}</td>
           <td class="message-column"><span class="message-text" title="${{escapeHtml(row.message || "-")}}">${{escapeHtml(row.message || "-")}}</span></td>
-          <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
-          <td>${{severityAlignment}}</td>
+          ${{comparisonCells.map(value => `<td>${{value}}</td>`).join("")}}
           <td class="reason score-column">${{scoreOrReason}}</td>
           <td class="details-column">
             <button type="button" class="reason-button details-button" title="Open details" aria-label="Open details">i</button>
@@ -752,7 +822,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const idRow = document.createElement("tr");
         idRow.className = "id-row";
         idRow.innerHTML = `
-          <td colspan="6">
+          <td colspan="${{columnCount}}">
             <div class="id-strip">
               <div>${{escapeHtml(row.truesight_event_id || "-")}}</div>
               <div class="id-right">${{escapeHtml(row.bhom_event_id || "")}}</div>

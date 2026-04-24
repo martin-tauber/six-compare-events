@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 
 from lib import (
@@ -46,8 +47,8 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = {
-        "truesight": truesight.metadata,
-        "bhom": bhom.metadata,
+        "truesight": enrich_source_metadata(truesight.metadata, truesight.events),
+        "bhom": enrich_source_metadata(bhom.metadata, bhom.events),
         "truesight_to_bhom": truesight_to_bhom["summary"],
         "bhom_to_truesight": bhom_to_truesight["summary"],
         "issues": truesight.issues + bhom.issues,
@@ -203,6 +204,23 @@ def main() -> None:
 
 def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def enrich_source_metadata(metadata: dict[str, object], events: list[object]) -> dict[str, object]:
+    creation_times = sorted(
+        event.creation_time
+        for event in events
+        if getattr(event, "creation_time", None) is not None
+    )
+    enriched = dict(metadata)
+    enriched["analyzed_event_count"] = metadata.get("event_count", len(events))
+    enriched["start_time"] = format_timestamp(creation_times[0]) if creation_times else ""
+    enriched["end_time"] = format_timestamp(creation_times[-1]) if creation_times else ""
+    return enriched
+
+
+def format_timestamp(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def write_csv(

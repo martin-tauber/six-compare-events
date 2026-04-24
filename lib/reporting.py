@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,15 @@ def write_matching_documentation(
 
 def coverage_percent(count: int, total: int) -> str:
     return f"{(count / total * 100):.2f}%" if total else "0.00%"
+
+
+def format_header_timestamp(value: str) -> str:
+    if not value:
+        return "-"
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except ValueError:
+        return value
 
 
 def build_browser_payload(
@@ -224,6 +234,8 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     )
     issue_note = ""
     issues = payload["summary"].get("issues", [])
+    truesight_meta = payload["summary"].get("truesight", {})
+    bhom_meta = payload["summary"].get("bhom", {})
     for issue in issues:
         if issue.get("kind") == "partial_export":
             issue_note = (
@@ -282,6 +294,22 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 12px;
       margin-top: 18px;
+    }}
+    .meta-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }}
+    .meta-card {{
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }}
+    .meta-card strong {{
+      display: block;
+      margin-bottom: 8px;
     }}
     .card {{
       background: var(--panel-alt);
@@ -533,6 +561,20 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <div class="subtle">Browse Truesight critical-event comparison results against BHOM.</div>
         </div>
         <a class="link-button" href="matching_documentation.html">Matching documentation</a>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-card">
+          <strong>Truesight analysed</strong>
+          <div class="subtle">Events: {truesight_meta.get('analyzed_event_count', truesight_meta.get('event_count', '-'))}</div>
+          <div class="subtle">Start: {escape(format_header_timestamp(str(truesight_meta.get('start_time', ''))))}</div>
+          <div class="subtle">End: {escape(format_header_timestamp(str(truesight_meta.get('end_time', ''))))}</div>
+        </div>
+        <div class="meta-card">
+          <strong>BHOM analysed</strong>
+          <div class="subtle">Events: {bhom_meta.get('analyzed_event_count', bhom_meta.get('event_count', '-'))}</div>
+          <div class="subtle">Start: {escape(format_header_timestamp(str(bhom_meta.get('start_time', ''))))}</div>
+          <div class="subtle">End: {escape(format_header_timestamp(str(bhom_meta.get('end_time', ''))))}</div>
+        </div>
       </div>
       <div class="cards">
         <div class="card"><div class="label">Truesight critical</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>

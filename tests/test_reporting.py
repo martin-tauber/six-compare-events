@@ -10,6 +10,16 @@ from lib.reporting import build_browser_payload, write_browser_report, write_mat
 class ReportingTests(unittest.TestCase):
     def test_browser_report_contains_expected_sections(self) -> None:
         summary = {
+            "truesight": {
+                "analyzed_event_count": 12,
+                "start_time": "2026-04-23T11:00:00Z",
+                "end_time": "2026-04-23T12:00:00Z",
+            },
+            "bhom": {
+                "analyzed_event_count": 20,
+                "start_time": "2026-04-23T11:00:00Z",
+                "end_time": "2026-04-23T12:00:00Z",
+            },
             "truesight_to_bhom": {
                 "critical_events_in_truesight": 10,
                 "matched_count": 8,
@@ -82,6 +92,12 @@ class ReportingTests(unittest.TestCase):
 
         self.assertIn("Event comparison browser", html)
         self.assertIn("Matching documentation", html)
+        self.assertIn("Truesight analysed", html)
+        self.assertIn("BHOM analysed", html)
+        self.assertIn("Events: 12", html)
+        self.assertIn("Events: 20", html)
+        self.assertIn("Start: 2026-04-23 11:00:00 UTC", html)
+        self.assertIn("End: 2026-04-23 12:00:00 UTC", html)
         self.assertIn('"score_breakdown"', html)
         self.assertIn('"object": 35', html)
         self.assertIn("score-total", html)

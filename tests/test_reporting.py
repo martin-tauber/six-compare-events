@@ -50,7 +50,16 @@ class ReportingTests(unittest.TestCase):
                     "time_delta_seconds": 0,
                 }
             ],
-            "ambiguous": [],
+            "ambiguous": [
+                {
+                    "truesight_event": {"source": "truesight", "event_id": "ts-3", "object_class": "A", "object_name": "obj3", "host": "host3", "severity": "CRITICAL", "creation_time": "t5", "notification_group": "4005", "message": "msg3"},
+                    "top_candidates": [
+                        {"event": {"event_id": "bh-3a", "severity": "CRITICAL", "notification_group": "4005"}, "score": 91},
+                        {"event": {"event_id": "bh-3b", "severity": "WARNING", "notification_group": "4999"}, "score": 90},
+                    ],
+                    "reason": "Multiple candidates have similarly strong scores.",
+                }
+            ],
             "unmatched": [],
         }
 
@@ -83,12 +92,16 @@ class ReportingTests(unittest.TestCase):
         self.assertIn(">Score<", html)
         self.assertNotIn(">Score / reason<", html)
         self.assertNotIn(">Details<", html)
+        self.assertNotIn(">Truesight resp<", html)
+        self.assertNotIn(">BHOM resp<", html)
         self.assertNotIn(">Open<", html)
         self.assertIn(">Message<", html)
         self.assertNotIn(">Object class<", html)
         self.assertNotIn(">Event<", html)
         self.assertIn("ts-1", html)
         self.assertIn("bh-1", html)
+        self.assertIn("bh-3a", html)
+        self.assertIn("bh-3b", html)
         self.assertIn("Severity mismatch", html)
         self.assertIn("Responsibility mismatch", html)
         self.assertIn("Overall coverage", html)

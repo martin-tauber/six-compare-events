@@ -134,6 +134,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
 def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
     truesight_event = row["truesight_event"]
     candidates = row["top_candidates"]
+    candidate_ids = [candidate["event"]["event_id"] for candidate in candidates]
     return {
         "kind": "ambiguous",
         "truesight_event_id": truesight_event["event_id"],
@@ -141,9 +142,9 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
         "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
-        "bhom_severity": ", ".join(candidate["event"]["severity"] for candidate in candidates),
+        "bhom_severity": candidate_ids,
         "truesight_responsibility": truesight_event["notification_group"],
-        "bhom_responsibility": ", ".join(candidate["event"]["notification_group"] for candidate in candidates),
+        "bhom_responsibility": candidate_ids,
         "responsibility_alignment": "",
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": "",
@@ -389,6 +390,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       text-overflow: ellipsis;
       white-space: nowrap;
     }}
+    .stack-list {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
     .score-column {{
       width: 1%;
       white-space: nowrap;
@@ -604,16 +610,14 @@ def render_browser_html(payload: dict[str, Any]) -> str:
 
       const tableContainer = document.getElementById("table-container");
       const table = document.createElement("table");
+      const comparisonHeader = section.id === "ambiguous" ? "Identifier" : "BHOM severity";
       table.innerHTML = `
         <thead>
           <tr>
             <th>Host</th>
             <th class="message-column">Message</th>
             <th>Truesight severity</th>
-            <th>BHOM severity</th>
-            <th>Truesight resp</th>
-            <th>BHOM resp</th>
-            <th>Responsibility</th>
+            <th>${{comparisonHeader}}</th>
             <th class="score-column">Score</th>
             <th class="details-column"></th>
           </tr>
@@ -623,9 +627,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
 
       for (const row of rows) {{
         const tr = document.createElement("tr");
+        const renderStack = (value) => Array.isArray(value)
+          ? `<div class="stack-list">${{value.map(item => `<div>${{escapeHtml(item || "-")}}</div>`).join("")}}</div>`
+          : escapeHtml(value || "-");
         const severityAlignment = row.kind === "matched"
           ? `<span class="pill ${{row.bhom_severity === "CRITICAL" ? "critical" : "noncritical"}}">${{row.bhom_severity || "-"}}</span>`
-          : row.bhom_severity || "-";
+          : renderStack(row.bhom_severity);
         const responsibilityAlignment = row.kind === "matched"
           ? `<span class="pill ${{row.responsibility_alignment}}">${{escapeHtml(row.responsibility_alignment || "-")}}</span>`
           : escapeHtml(row.responsibility_alignment || "-");
@@ -644,9 +651,6 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <td class="message-column"><span class="message-text" title="${{escapeHtml(row.message || "-")}}">${{escapeHtml(row.message || "-")}}</span></td>
           <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
           <td>${{severityAlignment}}</td>
-          <td>${{escapeHtml(row.truesight_responsibility || "-")}}</td>
-          <td>${{escapeHtml(row.bhom_responsibility || "-")}}</td>
-          <td>${{responsibilityAlignment}}</td>
           <td class="reason score-column">${{scoreOrReason}}</td>
           <td class="details-column">
             <button type="button" class="reason-button details-button" title="Open details" aria-label="Open details">i</button>
@@ -665,7 +669,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const idRow = document.createElement("tr");
         idRow.className = "id-row";
         idRow.innerHTML = `
-          <td colspan="9">
+          <td colspan="6">
             <div class="id-strip">
               <div>${{escapeHtml(row.truesight_event_id || "-")}}</div>
               <div class="id-right">${{escapeHtml(row.bhom_event_id || "")}}</div>

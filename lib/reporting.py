@@ -50,6 +50,28 @@ def format_header_timestamp(value: str) -> str:
         return value
 
 
+def build_issue_notes(issues: list[dict[str, Any]], *, docs_mode: bool = False) -> list[str]:
+    notes: list[str] = []
+    for issue in issues:
+        if issue.get("kind") == "partial_export":
+            if docs_mode:
+                notes.append(
+                    f"Current BHOM sample is partial: {issue['materialized_hits']} hits are present in the file "
+                    f"while {issue['reported_total']} were reported by the export."
+                )
+            else:
+                notes.append(
+                    f"BHOM export is partial: {issue['materialized_hits']} hits materialized "
+                    f"while {issue['reported_total']} were reported."
+                )
+        elif issue.get("kind") == "analysis_window_limited":
+            notes.append(
+                f"Analysis was limited to the shared timeframe {format_header_timestamp(str(issue.get('start_time', '')))} "
+                f"to {format_header_timestamp(str(issue.get('end_time', '')))}."
+            )
+    return notes
+
+
 def build_browser_payload(
     *,
     summary: dict[str, Any],
@@ -269,17 +291,10 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         matched_total - payload["notification_mismatch_count"],
         matched_total,
     )
-    issue_note = ""
     issues = payload["summary"].get("issues", [])
     truesight_meta = payload["summary"].get("truesight", {})
     bhom_meta = payload["summary"].get("bhom", {})
-    for issue in issues:
-        if issue.get("kind") == "partial_export":
-            issue_note = (
-                f"BHOM export is partial: {issue['materialized_hits']} hits materialized "
-                f"while {issue['reported_total']} were reported."
-            )
-            break
+    issue_notes = build_issue_notes(issues)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -601,7 +616,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       text-align: right;
     }}
     .issue-banner {{
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 8px;
       margin-top: 16px;
@@ -734,7 +749,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <div class="card"><div class="label">No BHOM candidate</div><div class="value">{ts_summary['unmatched_count']}</div></div>
         <div class="card"><div class="label">Overall coverage</div><div class="value">{overall_coverage}</div></div>
       </div>
-      {f'<div class="issue-banner"><span class="issue-icon">!</span><span>{escape(issue_note)}</span></div>' if issue_note else ''}
+      {"".join(f'<div class="issue-banner"><span class="issue-icon">!</span><span>{escape(note)}</span></div>' for note in issue_notes)}
     </section>
 
     <section class="panel">
@@ -1051,14 +1066,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
     ts_summary = summary["truesight_to_bhom"]
     bhom_summary = summary["bhom_to_truesight"]
     issues = summary.get("issues", [])
-    issue_note = ""
-    for issue in issues:
-        if issue.get("kind") == "partial_export":
-            issue_note = (
-                f"Current BHOM sample is partial: {issue['materialized_hits']} hits are present in the file "
-                f"while {issue['reported_total']} were reported by the export."
-            )
-            break
+    issue_notes = build_issue_notes(issues, docs_mode=True)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1147,7 +1155,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <div class="mini"><strong>Matched to BHOM non-critical</strong><br>{ts_summary['matched_to_noncritical_count']}</div>
         <div class="mini"><strong>BHOM critical without Truesight critical</strong><br>{bhom_summary['unmatched_count']}</div>
       </div>
-      <p class="subtle" style="margin-top:16px;">{escape(issue_note) if issue_note else ''}</p>
+      {"".join(f'<p class="subtle" style="margin-top:16px;">{escape(note)}</p>' for note in issue_notes)}
     </section>
 
     <section class="panel">

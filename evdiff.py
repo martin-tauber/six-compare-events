@@ -34,14 +34,15 @@ def main() -> None:
 
     truesight = load_truesight_events(args.truesight)
     bhom = load_bhom_events(args.bhom)
+    truesight_events, bhom_events, analysis_issues = limit_events_to_shared_timeframe(truesight.events, bhom.events)
     truesight_to_bhom = analyze_critical_events(
-        primary_events=truesight.events,
+        primary_events=truesight_events,
         candidate_events=bhom.events,
         primary_label="truesight",
         candidate_label="bhom",
     )
     bhom_to_truesight = analyze_critical_events(
-        primary_events=bhom.events,
+        primary_events=bhom_events,
         candidate_events=truesight.events,
         primary_label="bhom",
         candidate_label="truesight",
@@ -51,11 +52,11 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = {
-        "truesight": enrich_source_metadata(truesight.metadata, truesight.events),
-        "bhom": enrich_source_metadata(bhom.metadata, bhom.events),
+        "truesight": enrich_source_metadata(truesight.metadata, truesight_events),
+        "bhom": enrich_source_metadata(bhom.metadata, bhom_events),
         "truesight_to_bhom": truesight_to_bhom["summary"],
         "bhom_to_truesight": bhom_to_truesight["summary"],
-        "issues": truesight.issues + bhom.issues,
+        "issues": analysis_issues + truesight.issues + bhom.issues,
     }
     stats_snapshot = build_stats_snapshot(
         summary,
@@ -75,7 +76,7 @@ def main() -> None:
     write_json(output_dir / "bhom_critical_to_truesight_noncritical.json", bhom_to_truesight["matched_to_noncritical"])
     write_json(output_dir / "bhom_critical_unmatched.json", bhom_to_truesight["unmatched"])
     write_json(output_dir / "bhom_critical_ambiguous.json", bhom_to_truesight["ambiguous"])
-    write_json(output_dir / "ingestion_issues.json", truesight.issues + bhom.issues)
+    write_json(output_dir / "ingestion_issues.json", analysis_issues + truesight.issues + bhom.issues)
     write_browser_report(output_dir / "index.html", summary=summary, truesight_to_bhom=truesight_to_bhom)
     write_matching_documentation(output_dir / "matching_documentation.html", summary=summary)
     stats_dir = Path("stats")
@@ -221,6 +222,9 @@ def main() -> None:
     print(f"Unmatched: {ts_summary['unmatched_count']}")
     print(f"Pairing coverage: {ts_summary['coverage_pct']}%")
     print(f"Overall coverage: {stats_snapshot['coverage']['overall_pct']}%")
+    for issue in analysis_issues:
+        if issue.get("kind") == "analysis_window_limited":
+            print(f"Analysis window limited to: {issue['start_time']} - {issue['end_time']}")
     print(f"BHOM critical without Truesight critical: {bhom_summary['unmatched_count']}")
     print(f"BHOM critical matched to Truesight non-critical: {bhom_summary['matched_to_noncritical_count']}")
     print(f"Matching documentation: {(output_dir / 'matching_documentation.html').resolve()}")
@@ -245,7 +249,7 @@ def enrich_source_metadata(metadata: dict[str, object], events: list[object]) ->
         if getattr(event, "creation_time", None) is not None
     )
     enriched = dict(metadata)
-    enriched["analyzed_event_count"] = metadata.get("event_count", len(events))
+    enriched["analyzed_event_count"] = len(events)
     enriched["start_time"] = format_timestamp(creation_times[0]) if creation_times else ""
     enriched["end_time"] = format_timestamp(creation_times[-1]) if creation_times else ""
     return enriched
@@ -317,6 +321,58 @@ def calculate_overall_coverage(truesight_to_bhom: dict[str, object]) -> dict[str
         "mismatch_count": mismatch_count,
         "overall_pct": overall_pct,
     }
+
+
+def limit_events_to_shared_timeframe(
+    truesight_events: list[object],
+    bhom_events: list[object],
+) -> tuple[list[object], list[object], list[dict[str, object]]]:
+    truesight_bounds = event_time_bounds(truesight_events)
+    bhom_bounds = event_time_bounds(bhom_events)
+    if not truesight_bounds or not bhom_bounds:
+        return truesight_events, bhom_events, []
+
+    overlap_start = max(truesight_bounds[0], bhom_bounds[0])
+    overlap_end = min(truesight_bounds[1], bhom_bounds[1])
+    if overlap_start > overlap_end:
+        return truesight_events, bhom_events, []
+
+    truesight_filtered = filter_events_by_timeframe(truesight_events, overlap_start, overlap_end)
+    bhom_filtered = filter_events_by_timeframe(bhom_events, overlap_start, overlap_end)
+    narrowed = overlap_start > truesight_bounds[0] or overlap_end < truesight_bounds[1] or overlap_start > bhom_bounds[0] or overlap_end < bhom_bounds[1]
+    if not narrowed:
+        return truesight_filtered, bhom_filtered, []
+
+    return truesight_filtered, bhom_filtered, [
+        {
+            "kind": "analysis_window_limited",
+            "start_time": format_timestamp(overlap_start),
+            "end_time": format_timestamp(overlap_end),
+            "truesight_original_count": len(truesight_events),
+            "truesight_limited_count": len(truesight_filtered),
+            "bhom_original_count": len(bhom_events),
+            "bhom_limited_count": len(bhom_filtered),
+        }
+    ]
+
+
+def event_time_bounds(events: list[object]) -> tuple[datetime, datetime] | None:
+    creation_times = sorted(
+        event.creation_time
+        for event in events
+        if getattr(event, "creation_time", None) is not None
+    )
+    if not creation_times:
+        return None
+    return creation_times[0], creation_times[-1]
+
+
+def filter_events_by_timeframe(events: list[object], start: datetime, end: datetime) -> list[object]:
+    return [
+        event
+        for event in events
+        if getattr(event, "creation_time", None) is not None and start <= event.creation_time <= end
+    ]
 
 
 def write_stats_snapshot(stats_dir: Path, snapshot: dict[str, object]) -> None:

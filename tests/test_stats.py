@@ -6,10 +6,51 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from evdiff import build_stats_snapshot, write_stats_snapshot
+from evdiff import build_stats_snapshot, limit_events_to_shared_timeframe, write_stats_snapshot
+from lib.matching import compare_critical_presence
+from lib.models import CanonicalEvent
 
 
 class StatsTests(unittest.TestCase):
+    def test_clamped_primary_events_can_still_match_full_candidate_set(self) -> None:
+        truesight_events = [
+            CanonicalEvent("truesight", "ts-out", datetime(2026, 4, 23, 11, 0, 0, tzinfo=UTC), "OPEN", "CRITICAL", "CLASS", "other", "other", "", "", "host-a", "ignore", "", "", "", "4005", "", {}),
+            CanonicalEvent("truesight", "ts-in", datetime(2026, 4, 23, 11, 30, 0, tzinfo=UTC), "OPEN", "CRITICAL", "CLASS", "object-a", "object-a", "", "", "host-a", "shared message", "", "", "", "4005", "", {}),
+        ]
+        bhom_events = [
+            CanonicalEvent("bhom", "bh-overlap", datetime(2026, 4, 23, 11, 15, 0, tzinfo=UTC), "OPEN", "CRITICAL", "OTHER", "other", "other", "", "", "host-b", "other", "", "", "", "9999", "", {}),
+            CanonicalEvent("bhom", "bh-match", datetime(2026, 4, 23, 12, 10, 0, tzinfo=UTC), "OPEN", "CRITICAL", "CLASS", "object-a", "object-a", "", "", "host-a", "shared message", "", "", "", "4005", "", {}),
+        ]
+
+        limited_ts, limited_bhom, issues = limit_events_to_shared_timeframe(truesight_events, bhom_events)
+        result = compare_critical_presence(limited_ts, bhom_events)
+
+        self.assertEqual(["ts-in"], [event.event_id for event in limited_ts])
+        self.assertEqual(["bh-overlap"], [event.event_id for event in limited_bhom])
+        self.assertEqual("analysis_window_limited", issues[0]["kind"])
+        self.assertEqual(1, result["summary"]["matched_count"])
+        self.assertEqual("bh-match", result["matched"][0]["bhom_event"]["event_id"])
+
+    def test_limit_events_to_shared_timeframe_filters_to_overlap_and_reports_issue(self) -> None:
+        truesight_events = [
+            CanonicalEvent("truesight", "ts-1", datetime(2026, 4, 23, 11, 0, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+            CanonicalEvent("truesight", "ts-2", datetime(2026, 4, 23, 11, 30, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+            CanonicalEvent("truesight", "ts-3", datetime(2026, 4, 23, 12, 30, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+        ]
+        bhom_events = [
+            CanonicalEvent("bhom", "bh-1", datetime(2026, 4, 23, 11, 15, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+            CanonicalEvent("bhom", "bh-2", datetime(2026, 4, 23, 12, 0, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+            CanonicalEvent("bhom", "bh-3", datetime(2026, 4, 23, 12, 45, 0, tzinfo=UTC), "", "CRITICAL", "", "", "", "", "", "", "", "", "", "", "", "", {}),
+        ]
+
+        limited_ts, limited_bhom, issues = limit_events_to_shared_timeframe(truesight_events, bhom_events)
+
+        self.assertEqual(["ts-2", "ts-3"], [event.event_id for event in limited_ts])
+        self.assertEqual(["bh-1", "bh-2"], [event.event_id for event in limited_bhom])
+        self.assertEqual("analysis_window_limited", issues[0]["kind"])
+        self.assertEqual("2026-04-23T11:15:00Z", issues[0]["start_time"])
+        self.assertEqual("2026-04-23T12:30:00Z", issues[0]["end_time"])
+
     def test_write_stats_snapshot_creates_latest_history_and_timestamped_file(self) -> None:
         summary = {
             "truesight": {

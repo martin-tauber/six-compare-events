@@ -72,15 +72,16 @@ open output/index.html
 The current implementation focuses on critical-event comparison:
 
 1. Load and normalize Truesight and BHOM events
-2. Match Truesight critical events to BHOM events
-3. Split results into:
+2. Limit analysis to the shared time window when the Truesight and BHOM sample ranges differ
+3. Match Truesight critical events to BHOM events
+4. Split results into:
    - matched to BHOM critical
    - matched to BHOM non-critical
    - ambiguous
    - unmatched
-4. Run the reverse view for BHOM critical events
-5. Compare responsibility and notification type alignment for accepted matches
-6. Generate HTML, JSON, and CSV outputs
+5. Run the reverse view for BHOM critical events
+6. Compare responsibility and notification type alignment for accepted matches
+7. Generate HTML, JSON, and CSV outputs
 
 Matching uses a weighted score based on signals such as object class, object, instance, host, fingerprint, `msg_ident`, metric name, message similarity, and time proximity.
 

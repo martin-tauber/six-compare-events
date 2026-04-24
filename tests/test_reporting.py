@@ -34,7 +34,10 @@ class ReportingTests(unittest.TestCase):
                 "unmatched_count": 1,
                 "critical_match_pct": 60.0,
             },
-            "issues": [{"kind": "partial_export", "materialized_hits": 20, "reported_total": 30}],
+            "issues": [
+                {"kind": "partial_export", "materialized_hits": 20, "reported_total": 30},
+                {"kind": "analysis_window_limited", "start_time": "2026-04-23T11:15:00Z", "end_time": "2026-04-23T11:45:00Z"},
+            ],
         }
         truesight_to_bhom = {
             "matched_to_critical": [
@@ -176,6 +179,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("issue-banner", html)
         self.assertIn("issue-icon", html)
         self.assertIn("BHOM export is partial", html)
+        self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)
         self.assertIn("75.00% coverage", html)
@@ -185,6 +189,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)
+        self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", docs_html)
         self.assertIn("Statistics", stats_html)
         self.assertIn("Current run", stats_html)
         self.assertIn("Recent runs", stats_html)

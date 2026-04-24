@@ -98,6 +98,7 @@ END
         self.assertEqual("ts-ueid-1", result["matched"][0]["truesight_event"]["event_id"])
         self.assertEqual("bhom-1", result["matched"][0]["bhom_event"]["event_id"])
         self.assertEqual("match", result["matched"][0]["responsibility_alignment"])
+        self.assertEqual("match", result["matched"][0]["notification_alignment"])
         self.assertIn("score_breakdown", result["matched"][0])
         self.assertGreater(result["matched"][0]["score_breakdown"]["object"], 0)
 
@@ -246,6 +247,7 @@ END
         self.assertEqual(1, result["summary"]["matched_to_noncritical_count"])
         self.assertEqual("noncritical", result["matched"][0]["severity_alignment"])
         self.assertEqual("match", result["matched"][0]["responsibility_alignment"])
+        self.assertEqual("match", result["matched"][0]["notification_alignment"])
 
     def test_responsibility_mismatch_is_exposed_on_match(self) -> None:
         truesight_payload = """PATROL_EV;
@@ -303,6 +305,98 @@ END
 
         self.assertEqual(1, result["summary"]["matched_count"])
         self.assertEqual("mismatch", result["matched"][0]["responsibility_alignment"])
+        self.assertEqual("match", result["matched"][0]["notification_alignment"])
+
+    def test_truesight_notification_type_is_derived_from_baroc_slots(self) -> None:
+        truesight_payload = """PATROL_EV;
+\tevent_handle='ts-6';
+\tmc_ueid='ts-ueid-6';
+\tmc_host=swppro1;
+\tmc_object_class=TKS_OSCMD;
+\tmc_object='BME_LZ_MSG_WATCH';
+\tmc_parameter=OScoll;
+\tmc_incident_time=1776945829;
+\tstatus=OPEN;
+\tseverity=CRITICAL;
+\tmsg='Disk alert';
+\tp_instance='BME_LZ_MSG_WATCH';
+\tresp=4005;
+\talarm_type=AUTO;
+\tresp_type=PAGER;
+\twith_ars=TRUE;
+\tmsg_ident='BME_LZ_MSG_WATCH';
+END
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            truesight_path = Path(temp_dir) / "truesight.baroc"
+            truesight_path.write_text(truesight_payload)
+
+            truesight = load_truesight_events(truesight_path)
+
+        self.assertEqual("ONCALL_ITSM", truesight.events[0].notification_type)
+
+    def test_notification_mismatch_is_exposed_on_match(self) -> None:
+        truesight_payload = """PATROL_EV;
+\tevent_handle='ts-7';
+\tmc_ueid='ts-ueid-7';
+\tmc_host=swppro1;
+\tmc_object_class=TKS_OSCMD;
+\tmc_object='BME_LZ_MSG_WATCH';
+\tmc_parameter=OScoll;
+\tmc_incident_time=1776945829;
+\tstatus=OPEN;
+\tseverity=CRITICAL;
+\tmsg='Disk alert';
+\tp_instance='BME_LZ_MSG_WATCH';
+\tresp=4005;
+\talarm_type=AUTO;
+\tresp_type=PAGER;
+\twith_ars=TRUE;
+\tmsg_ident='BME_LZ_MSG_WATCH';
+END
+"""
+        bhom_payload = {
+            "responses": [
+                {
+                    "hits": {
+                        "total": {"value": 1, "relation": "eq"},
+                        "hits": [
+                            {
+                                "_source": {
+                                    "creation_time": 1776945829000,
+                                    "severity": "CRITICAL",
+                                    "status": "OPEN",
+                                    "object_class": "TKS_OSCMD",
+                                    "object": "BME_LZ_MSG_WATCH",
+                                    "source_hostname": "swppro1.dmz.six-group.net",
+                                    "_identifier": "bhom-7",
+                                    "six_notification_group": "4005",
+                                    "six_notification_type": "ONCALL",
+                                    "msg": "Disk alert",
+                                }
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            truesight_path = temp_path / "truesight.baroc"
+            bhom_path = temp_path / "bhom.json"
+            truesight_path.write_text(truesight_payload)
+            bhom_path.write_text(json.dumps(bhom_payload))
+
+            truesight = load_truesight_events(truesight_path)
+            bhom = load_bhom_events(bhom_path)
+            result = compare_critical_presence(truesight.events, bhom.events)
+
+        self.assertEqual(1, result["summary"]["matched_count"])
+        self.assertEqual("ONCALL_ITSM", result["matched"][0]["truesight_event"]["notification_type"])
+        self.assertEqual("ONCALL", result["matched"][0]["bhom_event"]["notification_type"])
+        self.assertEqual("mismatch", result["matched"][0]["notification_alignment"])
 
 
 if __name__ == "__main__":

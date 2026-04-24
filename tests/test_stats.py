@@ -40,21 +40,25 @@ class StatsTests(unittest.TestCase):
                     "truesight_event": {"event_id": "ts-1"},
                     "severity_alignment": "critical",
                     "responsibility_alignment": "match",
+                    "notification_alignment": "match",
                 },
                 {
                     "truesight_event": {"event_id": "ts-2"},
                     "severity_alignment": "noncritical",
                     "responsibility_alignment": "mismatch",
+                    "notification_alignment": "mismatch",
                 },
                 {
                     "truesight_event": {"event_id": "ts-3"},
                     "severity_alignment": "critical",
                     "responsibility_alignment": "mismatch",
+                    "notification_alignment": "match",
                 },
                 {
                     "truesight_event": {"event_id": "ts-4"},
                     "severity_alignment": "critical",
                     "responsibility_alignment": "match",
+                    "notification_alignment": "match",
                 },
             ],
         }

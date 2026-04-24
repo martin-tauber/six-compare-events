@@ -374,6 +374,7 @@ def build_matched_record(
         "message_similarity": round(top.message_similarity, 3),
         "severity_alignment": "critical" if top.event.severity == "CRITICAL" else "noncritical",
         "responsibility_alignment": compare_responsibility(event, top.event),
+        "notification_alignment": compare_notification_type(event, top.event),
     }
 
 
@@ -383,6 +384,20 @@ def compare_responsibility(left: CanonicalEvent, right: CanonicalEvent) -> str:
     if not left_group or not right_group:
         return "missing"
     if left_group == right_group:
+        return "match"
+    return "mismatch"
+
+
+def compare_notification_type(left: CanonicalEvent, right: CanonicalEvent) -> str:
+    left_type = normalize_text(left.notification_type)
+    right_type = normalize_text(right.notification_type)
+    if not left_type and not right_type:
+        return "match"
+    if not left_type:
+        return "mismatch"
+    if not right_type:
+        return "missing"
+    if left_type == right_type:
         return "match"
     return "mismatch"
 

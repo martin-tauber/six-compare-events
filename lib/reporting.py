@@ -59,12 +59,20 @@ def build_browser_payload(
     severity_mismatch_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]]
     all_matched_rows = matched_rows + severity_mismatch_rows
     responsibility_mismatch_rows = [row for row in all_matched_rows if row["responsibility_alignment"] == "mismatch"]
-    overall_coverage_rows = [row for row in matched_rows if row["responsibility_alignment"] == "match"]
+    notification_mismatch_rows = [row for row in all_matched_rows if row["notification_alignment"] != "match"]
+    overall_coverage_rows = [
+        row
+        for row in all_matched_rows
+        if row["severity_alignment"] == "critical"
+        and row["responsibility_alignment"] == "match"
+        and row["notification_alignment"] == "match"
+    ]
 
     return {
         "summary": summary,
         "overall_coverage_count": len(overall_coverage_rows),
         "responsibility_mismatch_count": len(responsibility_mismatch_rows),
+        "notification_mismatch_count": len(notification_mismatch_rows),
         "sections": [
             {
                 "id": "matched",
@@ -83,6 +91,12 @@ def build_browser_payload(
                 "label": "Responsibility mismatch",
                 "description": "Accepted matches where Truesight resp and BHOM six_notification_group are different.",
                 "rows": responsibility_mismatch_rows,
+            },
+            {
+                "id": "notification-mismatch",
+                "label": "Notification mismatch",
+                "description": "Accepted matches where the derived Truesight notification type is different from or missing in BHOM six_notification_type.",
+                "rows": notification_mismatch_rows,
             },
             {
                 "id": "ambiguous",
@@ -111,9 +125,13 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": bhom_event["severity"],
+        "severity_alignment": row["severity_alignment"],
         "truesight_responsibility": truesight_event["notification_group"],
         "bhom_responsibility": bhom_event["notification_group"],
         "responsibility_alignment": row["responsibility_alignment"],
+        "truesight_notification_type": truesight_event["notification_type"],
+        "bhom_notification_type": bhom_event["notification_type"],
+        "notification_alignment": row["notification_alignment"],
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": bhom_event["creation_time"],
         "notification_group": truesight_event["notification_group"],
@@ -132,6 +150,8 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
                 bhom_event["severity"],
                 truesight_event["notification_group"],
                 bhom_event["notification_group"],
+                truesight_event["notification_type"],
+                bhom_event["notification_type"],
                 truesight_event["message"],
                 bhom_event["message"],
             ]
@@ -144,6 +164,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
             "confidence": row["confidence"],
             "severity_alignment": row["severity_alignment"],
             "responsibility_alignment": row["responsibility_alignment"],
+            "notification_alignment": row["notification_alignment"],
             "matched_on": row["matched_on"],
             "message_similarity": row["message_similarity"],
             "time_delta_seconds": row["time_delta_seconds"],
@@ -166,6 +187,7 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
         "truesight_responsibility": truesight_event["notification_group"],
         "bhom_responsibility": candidate_ids,
         "responsibility_alignment": "",
+        "notification_alignment": "",
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": "",
         "notification_group": truesight_event["notification_group"],
@@ -204,6 +226,7 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
         "truesight_responsibility": truesight_event["notification_group"],
         "bhom_responsibility": "",
         "responsibility_alignment": "",
+        "notification_alignment": "",
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": "",
         "notification_group": truesight_event["notification_group"],
@@ -240,6 +263,10 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     )
     responsibility_alignment_coverage = coverage_percent(
         matched_total - payload["responsibility_mismatch_count"],
+        matched_total,
+    )
+    notification_alignment_coverage = coverage_percent(
+        matched_total - payload["notification_mismatch_count"],
         matched_total,
     )
     issue_note = ""
@@ -594,6 +621,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <div class="card"><div class="label">Matched to BHOM</div><div class="value">{ts_summary['matched_count']}</div><div class="meta">{coverage_percent(ts_summary['matched_count'], critical_total)} coverage</div></div>
         <div class="card"><div class="label">Severity mismatch</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div><div class="meta">{severity_alignment_coverage} coverage</div></div>
         <div class="card"><div class="label">Responsibility mismatch</div><div class="value">{payload['responsibility_mismatch_count']}</div><div class="meta">{responsibility_alignment_coverage} coverage</div></div>
+        <div class="card"><div class="label">Notification mismatch</div><div class="value">{payload['notification_mismatch_count']}</div><div class="meta">{notification_alignment_coverage} coverage</div></div>
         <div class="card"><div class="label">Ambiguous</div><div class="value">{ts_summary['ambiguous_count']}</div></div>
         <div class="card"><div class="label">No BHOM candidate</div><div class="value">{ts_summary['unmatched_count']}</div></div>
         <div class="card"><div class="label">Overall coverage</div><div class="value">{overall_coverage}</div></div>
@@ -922,7 +950,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>notification_group</code></li>
         <li><code>severity</code></li>
       </ul>
-      <p>For Truesight, the BAROC export is used directly, so slots like <code>p_instance</code>, <code>mc_parameter</code>, <code>msg_ident</code>, <code>resp</code>, and <code>resp_type</code> are read from the source instead of reconstructed from JSON. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>.</p>
+      <p>For Truesight, the BAROC export is used directly, so slots like <code>p_instance</code>, <code>mc_parameter</code>, <code>msg_ident</code>, <code>resp</code>, and <code>resp_type</code> are read from the source instead of reconstructed from JSON. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>. The shared <code>notification_type</code> field compares BHOM <code>six_notification_type</code> with the expected Truesight notification type derived from <code>alarm_type</code>, <code>resp_type</code>, and <code>with_ars</code>.</p>
     </section>
 
     <section class="panel">

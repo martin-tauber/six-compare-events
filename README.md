@@ -44,7 +44,7 @@ python3 evdiff.py \
 
 Main files written to `output/`:
 
-- `index.html` - browser view of matched, severity-mismatch, ambiguous, and unmatched events
+- `index.html` - browser view of matched, severity, responsibility, notification, ambiguous, and unmatched events
 - `statistics.html` - current run stats plus summarized history from `stats/`
 - `matching_documentation.html` - explanation of the matching and scoring logic
 - `summary.json` - overall metrics
@@ -79,7 +79,8 @@ The current implementation focuses on critical-event comparison:
    - ambiguous
    - unmatched
 4. Run the reverse view for BHOM critical events
-5. Generate HTML, JSON, and CSV outputs
+5. Compare responsibility and notification type alignment for accepted matches
+6. Generate HTML, JSON, and CSV outputs
 
 Matching uses a weighted score based on signals such as object class, object, instance, host, fingerprint, `msg_ident`, metric name, message similarity, and time proximity.
 

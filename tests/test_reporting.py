@@ -39,28 +39,30 @@ class ReportingTests(unittest.TestCase):
         truesight_to_bhom = {
             "matched_to_critical": [
                 {
-                    "truesight_event": {"source": "truesight", "event_id": "ts-1", "object_class": "A", "object_name": "obj", "host": "host", "severity": "CRITICAL", "creation_time": "t1", "notification_group": "1", "message": "msg"},
-                    "bhom_event": {"source": "bhom", "event_id": "bh-1", "object_class": "A", "object_name": "obj", "host": "host", "severity": "CRITICAL", "creation_time": "t2", "notification_group": "1", "message": "msg"},
+                    "truesight_event": {"source": "truesight", "event_id": "ts-1", "object_class": "A", "object_name": "obj", "host": "host", "severity": "CRITICAL", "creation_time": "t1", "notification_group": "1", "notification_type": "ONCALL", "message": "msg"},
+                    "bhom_event": {"source": "bhom", "event_id": "bh-1", "object_class": "A", "object_name": "obj", "host": "host", "severity": "CRITICAL", "creation_time": "t2", "notification_group": "1", "notification_type": "ONCALL", "message": "msg"},
                     "confidence": "high",
                     "score": 100,
                     "matched_on": ["object"],
                     "score_breakdown": {"object": 35, "host": 20},
                     "severity_alignment": "critical",
                     "responsibility_alignment": "match",
+                    "notification_alignment": "match",
                     "message_similarity": 1.0,
                     "time_delta_seconds": 0,
                 }
             ],
             "matched_to_noncritical": [
                 {
-                    "truesight_event": {"source": "truesight", "event_id": "ts-2", "object_class": "A", "object_name": "obj2", "host": "host2", "severity": "CRITICAL", "creation_time": "t3", "notification_group": "4005", "message": "msg2"},
-                    "bhom_event": {"source": "bhom", "event_id": "bh-2", "object_class": "A", "object_name": "obj2", "host": "host2", "severity": "WARNING", "creation_time": "t4", "notification_group": "4999", "message": "msg2"},
+                    "truesight_event": {"source": "truesight", "event_id": "ts-2", "object_class": "A", "object_name": "obj2", "host": "host2", "severity": "CRITICAL", "creation_time": "t3", "notification_group": "4005", "notification_type": "ONCALL_ITSM", "message": "msg2"},
+                    "bhom_event": {"source": "bhom", "event_id": "bh-2", "object_class": "A", "object_name": "obj2", "host": "host2", "severity": "WARNING", "creation_time": "t4", "notification_group": "4999", "notification_type": "ONCALL", "message": "msg2"},
                     "confidence": "medium",
                     "score": 88,
                     "matched_on": ["object"],
                     "score_breakdown": {"object": 35, "host": 20},
                     "severity_alignment": "noncritical",
                     "responsibility_alignment": "mismatch",
+                    "notification_alignment": "mismatch",
                     "message_similarity": 1.0,
                     "time_delta_seconds": 0,
                 }
@@ -81,11 +83,12 @@ class ReportingTests(unittest.TestCase):
         payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom)
 
         self.assertEqual(
-            ["matched", "severity-mismatch", "responsibility-mismatch", "ambiguous", "unmatched"],
+            ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched"],
             [section["id"] for section in payload["sections"]],
         )
         self.assertEqual(1, payload["overall_coverage_count"])
         self.assertEqual(1, payload["responsibility_mismatch_count"])
+        self.assertEqual(1, payload["notification_mismatch_count"])
 
         with tempfile.TemporaryDirectory() as temp_dir:
             report_path = Path(temp_dir) / "index.html"
@@ -156,12 +159,14 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("bh-3b", html)
         self.assertIn("Severity mismatch", html)
         self.assertIn("Responsibility mismatch", html)
+        self.assertIn("Notification mismatch", html)
         self.assertIn("Overall coverage", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)
         self.assertIn("75.00% coverage", html)
         self.assertIn("87.50% coverage", html)
         self.assertIn('"responsibility_alignment": "mismatch"', html)
+        self.assertIn('"notification_alignment": "mismatch"', html)
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)

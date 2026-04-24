@@ -366,7 +366,7 @@ def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
         fingerprint=fingerprint,
         source_identifier=source_identifier,
         notification_group=stringify(raw.get("resp") or raw.get("six_notification_group")),
-        notification_type=stringify(raw.get("resp_type") or raw.get("six_notification_type")).upper(),
+        notification_type=derive_truesight_notification_type(raw),
         raw=raw,
         ingestion_notes=tuple(notes),
     )
@@ -416,6 +416,23 @@ def normalize_bhom_event(raw: dict[str, Any]) -> CanonicalEvent:
         raw=raw,
         ingestion_notes=tuple(notes),
     )
+
+
+def derive_truesight_notification_type(raw: dict[str, Any]) -> str:
+    alarm_type = stringify(raw.get("alarm_type")).upper()
+    resp_type = stringify(raw.get("resp_type")).upper()
+    with_ars = stringify(raw.get("with_ars")).upper()
+    if "AUTO" not in alarm_type:
+        return ""
+    if ("PAGER" in resp_type or "ALL" in resp_type) and "TRUE" in with_ars:
+        return "ONCALL_ITSM"
+    if "PAGER" in resp_type or "ALL" in resp_type:
+        return "ONCALL"
+    if "ITSM" in resp_type:
+        return "ITSM"
+    if "MAIL" in resp_type:
+        return "MAIL"
+    return stringify(raw.get("six_notification_type")).upper()
 
 
 def parse_timestamp(value: Any) -> datetime | None:

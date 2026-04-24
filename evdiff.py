@@ -98,6 +98,9 @@ def main() -> None:
             "truesight_notification_group",
             "bhom_notification_group",
             "responsibility_alignment",
+            "truesight_notification_type",
+            "bhom_notification_type",
+            "notification_alignment",
             "matched_on",
         ],
         primary_event_key="truesight_event",
@@ -122,6 +125,9 @@ def main() -> None:
             "truesight_notification_group",
             "bhom_notification_group",
             "responsibility_alignment",
+            "truesight_notification_type",
+            "bhom_notification_type",
+            "notification_alignment",
             "matched_on",
         ],
         primary_event_key="truesight_event",
@@ -175,6 +181,9 @@ def main() -> None:
             "bhom_notification_group",
             "truesight_notification_group",
             "responsibility_alignment",
+            "bhom_notification_type",
+            "truesight_notification_type",
+            "notification_alignment",
             "matched_on",
         ],
         primary_event_key="bhom_event",
@@ -286,7 +295,9 @@ def calculate_overall_coverage(truesight_to_bhom: dict[str, object]) -> dict[str
     mismatch_ids = {
         str(dict(row.get("truesight_event", {})).get("event_id", ""))
         for row in matched_rows
-        if row.get("severity_alignment") != "critical" or row.get("responsibility_alignment") != "match"
+        if row.get("severity_alignment") != "critical"
+        or row.get("responsibility_alignment") != "match"
+        or row.get("notification_alignment") != "match"
     }
     mismatch_ids.discard("")
     mismatch_count = len(mismatch_ids)
@@ -360,6 +371,9 @@ def flatten_row(
             f"{primary_prefix}_notification_group": primary_event["notification_group"],
             f"{candidate_prefix}_notification_group": candidate_event["notification_group"],
             "responsibility_alignment": row["responsibility_alignment"],
+            f"{primary_prefix}_notification_type": primary_event["notification_type"],
+            f"{candidate_prefix}_notification_type": candidate_event["notification_type"],
+            "notification_alignment": row["notification_alignment"],
             "matched_on": ",".join(row["matched_on"]),
         }
 

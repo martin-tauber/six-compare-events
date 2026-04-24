@@ -13,6 +13,7 @@ class LoaderTests(unittest.TestCase):
     def test_baroc_truesight_parser_recovers_multiline_slots(self) -> None:
         text = """PATROL_EV;
 \tevent_handle=58890557;
+\tmc_ueid='ts-parse-1';
 \tmc_host=swppro1;
 \tmc_object_class=TKS_OSCMD;
 \tmc_object='BME_LZ_MSG_WATCH';
@@ -40,6 +41,7 @@ END
     def test_end_to_end_critical_presence_output(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-1';
+\tmc_ueid='ts-ueid-1';
 \tmc_host=swppro1;
 \tmc_object_class=TKS_OSCMD;
 \tmc_object='BME_LZ_MSG_WATCH';
@@ -93,6 +95,7 @@ END
         self.assertEqual(1, result["summary"]["critical_events_in_truesight"])
         self.assertEqual(1, result["summary"]["matched_count"])
         self.assertEqual(0, result["summary"]["unmatched_count"])
+        self.assertEqual("ts-ueid-1", result["matched"][0]["truesight_event"]["event_id"])
         self.assertEqual("bhom-1", result["matched"][0]["bhom_event"]["event_id"])
         self.assertEqual("match", result["matched"][0]["responsibility_alignment"])
         self.assertIn("score_breakdown", result["matched"][0])
@@ -101,6 +104,7 @@ END
     def test_truesight_msg_ident_is_extracted_from_message(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-2';
+\tmc_ueid='ts-ueid-2';
 \tmc_host=swppro1;
 \tmc_object_class=TKS_OSCMD;
 \tmc_object='BME_LZ_MSG_WATCH';
@@ -128,6 +132,7 @@ END
     def test_message_time_fallback_matches_when_keys_do_not_overlap(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-3';
+\tmc_ueid='ts-ueid-3';
 \tmc_host='shared-host';
 \tmc_object_class='TRUESIGHT_ONLY';
 \tmc_object='ts-object';
@@ -185,6 +190,7 @@ END
     def test_severity_mismatch_is_classified_separately(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-4';
+\tmc_ueid='ts-ueid-4';
 \tmc_host=swppro1;
 \tmc_object_class=TKS_OSCMD;
 \tmc_object='BME_LZ_MSG_WATCH';
@@ -244,6 +250,7 @@ END
     def test_responsibility_mismatch_is_exposed_on_match(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-5';
+\tmc_ueid='ts-ueid-5';
 \tmc_host=swppro1;
 \tmc_object_class=TKS_OSCMD;
 \tmc_object='BME_LZ_MSG_WATCH';

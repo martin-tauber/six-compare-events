@@ -85,7 +85,8 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
     bhom_event = row["bhom_event"]
     return {
         "kind": "matched",
-        "title": truesight_event["event_id"],
+        "truesight_event_id": truesight_event["event_id"],
+        "bhom_event_id": bhom_event["event_id"],
         "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
@@ -135,7 +136,8 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
     candidates = row["top_candidates"]
     return {
         "kind": "ambiguous",
-        "title": truesight_event["event_id"],
+        "truesight_event_id": truesight_event["event_id"],
+        "bhom_event_id": "",
         "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
@@ -172,7 +174,8 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
     truesight_event = row["truesight_event"]
     return {
         "kind": "unmatched",
-        "title": truesight_event["event_id"],
+        "truesight_event_id": truesight_event["event_id"],
+        "bhom_event_id": "",
         "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
@@ -406,6 +409,20 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     .score-toggle summary {{
       font-size: 12px;
     }}
+    .id-row td {{
+      padding-top: 0;
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 0;
+    }}
+    .id-strip {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }}
+    .id-right {{
+      text-align: right;
+    }}
     details {{
       margin: 0;
     }}
@@ -516,7 +533,6 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       table.innerHTML = `
         <thead>
           <tr>
-            <th>Event</th>
             <th>Host</th>
             <th class="message-column">Message</th>
             <th>Truesight severity</th>
@@ -552,7 +568,6 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           : `${{escapeHtml(row.reason || "-")}}`;
 
         tr.innerHTML = `
-          <td>${{escapeHtml(row.title)}}</td>
           <td>${{escapeHtml(row.host || "-")}}</td>
           <td class="message-column"><span class="message-text" title="${{escapeHtml(row.message || "-")}}">${{escapeHtml(row.message || "-")}}</span></td>
           <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
@@ -569,6 +584,18 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           </td>
         `;
         tbody.appendChild(tr);
+
+        const idRow = document.createElement("tr");
+        idRow.className = "id-row";
+        idRow.innerHTML = `
+          <td colspan="9">
+            <div class="id-strip">
+              <div>${{escapeHtml(row.truesight_event_id || "-")}}</div>
+              <div class="id-right">${{escapeHtml(row.bhom_event_id || "")}}</div>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(idRow);
       }}
 
       table.appendChild(tbody);

@@ -351,7 +351,7 @@ def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
 
     return CanonicalEvent(
         source="truesight",
-        event_id=stringify(raw.get("event_handle") or raw.get("_identifier") or raw.get("mc_ueid")),
+        event_id=stringify(raw.get("mc_ueid") or raw.get("event_handle") or raw.get("_identifier")),
         creation_time=creation_time,
         status=stringify(raw.get("status")).upper(),
         severity=stringify(raw.get("severity")).upper(),

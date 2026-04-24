@@ -638,7 +638,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       gap: 6px;
     }}
     .copy-id-button {{
-      font-size: inherit;
+      font-size: 14px;
       line-height: 1;
       display: inline-flex;
       align-items: center;

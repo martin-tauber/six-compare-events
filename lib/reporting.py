@@ -26,6 +26,10 @@ def write_matching_documentation(
     path.write_text(render_matching_documentation_html(summary), encoding="utf-8")
 
 
+def coverage_percent(count: int, total: int) -> str:
+    return f"{(count / total * 100):.2f}%" if total else "0.00%"
+
+
 def build_browser_payload(
     *,
     summary: dict[str, Any],
@@ -35,9 +39,11 @@ def build_browser_payload(
     severity_mismatch_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]]
     all_matched_rows = matched_rows + severity_mismatch_rows
     responsibility_mismatch_rows = [row for row in all_matched_rows if row["responsibility_alignment"] == "mismatch"]
+    overall_coverage_rows = [row for row in matched_rows if row["responsibility_alignment"] == "match"]
 
     return {
         "summary": summary,
+        "overall_coverage_count": len(overall_coverage_rows),
         "responsibility_mismatch_count": len(responsibility_mismatch_rows),
         "sections": [
             {
@@ -204,6 +210,17 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
 def render_browser_html(payload: dict[str, Any]) -> str:
     data_json = json.dumps(payload, indent=2).replace("</", "<\\/")
     ts_summary = payload["summary"]["truesight_to_bhom"]
+    critical_total = ts_summary["critical_events_in_truesight"]
+    matched_total = ts_summary["matched_count"]
+    overall_coverage = coverage_percent(payload["overall_coverage_count"], critical_total)
+    severity_alignment_coverage = coverage_percent(
+        matched_total - ts_summary["matched_to_noncritical_count"],
+        matched_total,
+    )
+    responsibility_alignment_coverage = coverage_percent(
+        matched_total - payload["responsibility_mismatch_count"],
+        matched_total,
+    )
     issue_note = ""
     issues = payload["summary"].get("issues", [])
     for issue in issues:
@@ -281,6 +298,11 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       margin-top: 8px;
       font-size: 28px;
       font-weight: 700;
+    }}
+    .card .meta {{
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
     }}
     .tabs {{
       display: flex;
@@ -412,12 +434,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       </div>
       <div class="cards">
         <div class="card"><div class="label">Truesight critical</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>
-        <div class="card"><div class="label">Matched to BHOM critical</div><div class="value">{ts_summary['matched_to_critical_count']}</div></div>
-        <div class="card"><div class="label">Matched to BHOM non-critical</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div></div>
-        <div class="card"><div class="label">Responsibility mismatch</div><div class="value">{payload['responsibility_mismatch_count']}</div></div>
+        <div class="card"><div class="label">Matched to BHOM</div><div class="value">{ts_summary['matched_count']}</div><div class="meta">{coverage_percent(ts_summary['matched_count'], critical_total)} coverage</div></div>
+        <div class="card"><div class="label">Severity mismatch</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div><div class="meta">{severity_alignment_coverage} coverage</div></div>
+        <div class="card"><div class="label">Responsibility mismatch</div><div class="value">{payload['responsibility_mismatch_count']}</div><div class="meta">{responsibility_alignment_coverage} coverage</div></div>
         <div class="card"><div class="label">Ambiguous</div><div class="value">{ts_summary['ambiguous_count']}</div></div>
         <div class="card"><div class="label">No BHOM candidate</div><div class="value">{ts_summary['unmatched_count']}</div></div>
-        <div class="card"><div class="label">Critical coverage</div><div class="value">{ts_summary['critical_match_pct']}%</div></div>
+        <div class="card"><div class="label">Overall coverage</div><div class="value">{overall_coverage}</div></div>
       </div>
       <p class="subtle" style="margin:16px 0 0;">{escape(issue_note) if issue_note else ''}</p>
     </section>

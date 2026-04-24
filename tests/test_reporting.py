@@ -12,6 +12,7 @@ class ReportingTests(unittest.TestCase):
         summary = {
             "truesight_to_bhom": {
                 "critical_events_in_truesight": 10,
+                "matched_count": 8,
                 "matched_to_critical_count": 6,
                 "matched_to_noncritical_count": 2,
                 "ambiguous_count": 1,
@@ -59,6 +60,7 @@ class ReportingTests(unittest.TestCase):
             ["matched", "severity-mismatch", "responsibility-mismatch", "ambiguous", "unmatched"],
             [section["id"] for section in payload["sections"]],
         )
+        self.assertEqual(1, payload["overall_coverage_count"])
         self.assertEqual(1, payload["responsibility_mismatch_count"])
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -76,6 +78,11 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Total score", html)
         self.assertIn("Severity mismatch", html)
         self.assertIn("Responsibility mismatch", html)
+        self.assertIn("Overall coverage", html)
+        self.assertIn("10.00%", html)
+        self.assertIn("80.00% coverage", html)
+        self.assertIn("75.00% coverage", html)
+        self.assertIn("87.50% coverage", html)
         self.assertIn('"responsibility_alignment": "mismatch"', html)
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)

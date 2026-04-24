@@ -390,8 +390,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       white-space: nowrap;
     }}
     .score-column {{
-      min-width: 220px;
-      width: 220px;
+      width: 1%;
+      white-space: nowrap;
+      text-align: right;
     }}
     .score-box {{
       color: var(--muted);
@@ -401,13 +402,36 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     .score-total {{
       color: var(--text);
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 0;
     }}
-    .score-toggle {{
-      margin-top: 6px;
+    .score-inline {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
     }}
-    .score-toggle summary {{
-      font-size: 12px;
+    .reason-button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .details-button {{
+      font-size: 13px;
+      letter-spacing: 0;
+    }}
+    .details-column {{
+      width: 1%;
+      white-space: nowrap;
+      text-align: right;
     }}
     .id-row td {{
       padding-top: 0;
@@ -422,6 +446,42 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     }}
     .id-right {{
       text-align: right;
+    }}
+    .reason-modal {{
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, .65);
+      padding: 24px;
+      z-index: 1000;
+    }}
+    .reason-modal.open {{
+      display: flex;
+    }}
+    .reason-modal-card {{
+      width: min(720px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+    }}
+    .reason-modal-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+    }}
+    .reason-modal-close {{
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
     }}
     details {{
       margin: 0;
@@ -493,9 +553,23 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     </section>
   </div>
 
+  <div id="reason-modal" class="reason-modal" aria-hidden="true">
+    <div class="reason-modal-card">
+      <div class="reason-modal-head">
+        <strong id="reason-modal-title">Reason</strong>
+        <button id="reason-modal-close" class="reason-modal-close" type="button">Close</button>
+      </div>
+      <pre id="reason-modal-body"></pre>
+    </div>
+  </div>
+
   <script>
     const reportData = {data_json};
     const state = {{ activeSectionId: reportData.sections[0].id, search: "" }};
+    const reasonModal = document.getElementById("reason-modal");
+    const reasonModalTitle = document.getElementById("reason-modal-title");
+    const reasonModalBody = document.getElementById("reason-modal-body");
+    const reasonModalClose = document.getElementById("reason-modal-close");
 
     function sectionById(id) {{
       return reportData.sections.find(section => section.id === id);
@@ -540,8 +614,8 @@ def render_browser_html(payload: dict[str, Any]) -> str:
             <th>Truesight resp</th>
             <th>BHOM resp</th>
             <th>Responsibility</th>
-            <th class="score-column">Score / reason</th>
-            <th>Details</th>
+            <th class="score-column">Score</th>
+            <th class="details-column"></th>
           </tr>
         </thead>
       `;
@@ -555,17 +629,15 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const responsibilityAlignment = row.kind === "matched"
           ? `<span class="pill ${{row.responsibility_alignment}}">${{escapeHtml(row.responsibility_alignment || "-")}}</span>`
           : escapeHtml(row.responsibility_alignment || "-");
+        const reasonText = formatReason(row);
         const scoreOrReason = row.kind === "matched"
           ? `
-              <div class="score-total">${{escapeHtml(row.score)}}</div>
-              ${{row.details.score_breakdown ? `
-                <details class="score-toggle">
-                  <summary>Reason</summary>
-                  <div class="score-box">${{escapeHtml(formatScoreBreakdown(row.details.score_breakdown))}}</div>
-                </details>
-              ` : ""}}
+              <div class="score-inline">
+                <div class="score-total">${{escapeHtml(row.score)}}</div>
+                <button type="button" class="reason-button" title="Open reason" aria-label="Open reason">?</button>
+              </div>
             `
-          : `${{escapeHtml(row.reason || "-")}}`;
+          : `<button type="button" class="reason-button" title="Open reason" aria-label="Open reason">?</button>`;
 
         tr.innerHTML = `
           <td>${{escapeHtml(row.host || "-")}}</td>
@@ -576,13 +648,18 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <td>${{escapeHtml(row.bhom_responsibility || "-")}}</td>
           <td>${{responsibilityAlignment}}</td>
           <td class="reason score-column">${{scoreOrReason}}</td>
-          <td>
-            <details>
-              <summary>Open</summary>
-              <pre>${{escapeHtml(JSON.stringify(row.details, null, 2))}}</pre>
-            </details>
+          <td class="details-column">
+            <button type="button" class="reason-button details-button" title="Open details" aria-label="Open details">i</button>
           </td>
         `;
+        const reasonButton = tr.querySelector(".reason-button");
+        if (reasonButton) {{
+          reasonButton.addEventListener("click", () => openReasonModal("Reason", reasonText));
+        }}
+        const detailsButton = tr.querySelector(".details-button");
+        if (detailsButton) {{
+          detailsButton.addEventListener("click", () => openReasonModal("Details", JSON.stringify(row.details, null, 2)));
+        }}
         tbody.appendChild(tr);
 
         const idRow = document.createElement("tr");
@@ -615,6 +692,39 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         .map(([key, value]) => `${{key}}: +${{value}}`)
         .join(" | ");
     }}
+
+    function formatReason(row) {{
+      if (row.kind === "matched" && row.details.score_breakdown) {{
+        return formatScoreBreakdown(row.details.score_breakdown);
+      }}
+      return row.reason || "-";
+    }}
+
+    function openReasonModal(title, text) {{
+      reasonModalTitle.textContent = title || "Details";
+      reasonModalBody.textContent = text || "-";
+      reasonModal.classList.add("open");
+      reasonModal.setAttribute("aria-hidden", "false");
+    }}
+
+    function closeReasonModal() {{
+      reasonModal.classList.remove("open");
+      reasonModal.setAttribute("aria-hidden", "true");
+      reasonModalTitle.textContent = "Reason";
+      reasonModalBody.textContent = "";
+    }}
+
+    reasonModalClose.addEventListener("click", closeReasonModal);
+    reasonModal.addEventListener("click", (event) => {{
+      if (event.target === reasonModal) {{
+        closeReasonModal();
+      }}
+    }});
+    document.addEventListener("keydown", (event) => {{
+      if (event.key === "Escape" && reasonModal.classList.contains("open")) {{
+        closeReasonModal();
+      }}
+    }});
 
     function render() {{
       renderTabs();

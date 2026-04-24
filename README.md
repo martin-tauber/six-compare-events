@@ -8,6 +8,7 @@
 - `lib/` - loaders, matching logic, and report generation
 - `input/` - source dump files
 - `output/` - generated reports
+- `stats/` - generated statistics snapshots for trend analysis
 - `tests/` - unit tests
 
 ## Input files
@@ -44,6 +45,7 @@ python3 evdiff.py \
 Main files written to `output/`:
 
 - `index.html` - browser view of matched, severity-mismatch, ambiguous, and unmatched events
+- `statistics.html` - current run stats plus summarized history from `stats/`
 - `matching_documentation.html` - explanation of the matching and scoring logic
 - `summary.json` - overall metrics
 - `matched_critical_events.json` / `.csv`
@@ -52,6 +54,12 @@ Main files written to `output/`:
 - `ambiguous_critical_events.json` / `.csv`
 - `unmatched_critical_events.json` / `.csv`
 - reverse BHOM-to-Truesight result files
+
+Statistics snapshots are also written to `stats/`:
+
+- `latest.json` - most recent run
+- `history.jsonl` - one JSON record per run
+- `stats_YYYYMMDD_HHMMSSZ.json` - timestamped snapshot of a run
 
 Open the browser report directly in your browser:
 
@@ -79,7 +87,7 @@ Matching uses a weighted score based on signals such as object class, object, in
 
 - Truesight input should be BAROC.
 - BHOM input is expected as the exported JSON dump currently used in this project.
-- `output/` and `input/` are ignored by Git in this repository.
+- `output/`, `input/`, and `stats/` are ignored by Git in this repository.
 
 ## Tests
 

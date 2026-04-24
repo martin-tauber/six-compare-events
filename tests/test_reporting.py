@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.reporting import build_browser_payload, write_browser_report, write_matching_documentation
+from lib.reporting import (
+    build_browser_payload,
+    write_browser_report,
+    write_matching_documentation,
+    write_statistics_report,
+)
 
 
 class ReportingTests(unittest.TestCase):
@@ -89,6 +94,37 @@ class ReportingTests(unittest.TestCase):
             docs_path = Path(temp_dir) / "matching_documentation.html"
             write_matching_documentation(docs_path, summary={**summary, "bhom_to_truesight": {"unmatched_count": 3}})
             docs_html = docs_path.read_text()
+            stats_path = Path(temp_dir) / "statistics.html"
+            current_snapshot = {
+                "run_timestamp": "2026-04-24T11:37:58Z",
+                "truesight": {
+                    "analyzed_event_count": 12,
+                    "critical_event_count": 10,
+                    "start_time": "2026-04-23T11:00:00Z",
+                    "end_time": "2026-04-23T12:00:00Z",
+                },
+                "bhom": {
+                    "analyzed_event_count": 20,
+                    "start_time": "2026-04-23T11:00:00Z",
+                    "end_time": "2026-04-23T12:00:00Z",
+                },
+                "coverage": {"pairing_pct": 80.0, "overall_pct": 50.0, "critical_pct": 60.0},
+                "truesight_to_bhom": {
+                    "matched_count": 8,
+                    "mismatch_count": 3,
+                    "ambiguous_count": 1,
+                    "unmatched_count": 1,
+                },
+                "bhom_to_truesight": {
+                    "critical_events_in_bhom": 15,
+                },
+            }
+            history = [
+                {**current_snapshot, "run_timestamp": "2026-04-23T11:37:58Z", "coverage": {"pairing_pct": 70.0, "overall_pct": 40.0, "critical_pct": 50.0}},
+                current_snapshot,
+            ]
+            write_statistics_report(stats_path, current_snapshot=current_snapshot, history=history)
+            stats_html = stats_path.read_text()
 
         self.assertIn("Event comparison browser", html)
         self.assertIn("Matching documentation", html)
@@ -129,3 +165,11 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)
+        self.assertIn("Statistics", stats_html)
+        self.assertIn("Current run", stats_html)
+        self.assertIn("Recent runs", stats_html)
+        self.assertIn("Runs recorded", stats_html)
+        self.assertIn("Average pairing coverage", stats_html)
+        self.assertIn("Average overall coverage", stats_html)
+        self.assertIn("Mismatches to check", stats_html)
+        self.assertIn("50.00%", stats_html)

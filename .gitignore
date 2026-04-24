@@ -1,5 +1,6 @@
 /input/
 /output/
+/stats/
 /.idea/
 /lib/__pycache__/
 /tests/__pycache__/

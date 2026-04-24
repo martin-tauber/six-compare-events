@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from lib import (
@@ -12,6 +12,7 @@ from lib import (
     load_truesight_events,
     write_browser_report,
     write_matching_documentation,
+    write_statistics_report,
 )
 
 
@@ -27,6 +28,7 @@ def main() -> None:
         help="Directory where result files should be written",
     )
     args = parser.parse_args()
+    run_timestamp = datetime.now(UTC)
 
     truesight = load_truesight_events(args.truesight)
     bhom = load_bhom_events(args.bhom)
@@ -53,6 +55,7 @@ def main() -> None:
         "bhom_to_truesight": bhom_to_truesight["summary"],
         "issues": truesight.issues + bhom.issues,
     }
+    stats_snapshot = build_stats_snapshot(summary, truesight_to_bhom=truesight_to_bhom, run_timestamp=run_timestamp)
 
     write_json(output_dir / "summary.json", summary)
     write_json(output_dir / "matched_critical_events.json", truesight_to_bhom["matched"])
@@ -68,6 +71,13 @@ def main() -> None:
     write_json(output_dir / "ingestion_issues.json", truesight.issues + bhom.issues)
     write_browser_report(output_dir / "index.html", summary=summary, truesight_to_bhom=truesight_to_bhom)
     write_matching_documentation(output_dir / "matching_documentation.html", summary=summary)
+    stats_dir = Path("stats")
+    write_stats_snapshot(stats_dir, stats_snapshot)
+    write_statistics_report(
+        output_dir / "statistics.html",
+        current_snapshot=stats_snapshot,
+        history=load_stats_history(stats_dir / "history.jsonl"),
+    )
 
     write_csv(
         output_dir / "matched_critical_events.csv",
@@ -194,7 +204,7 @@ def main() -> None:
     print(f"Ambiguous: {ts_summary['ambiguous_count']}")
     print(f"Unmatched: {ts_summary['unmatched_count']}")
     print(f"Pairing coverage: {ts_summary['coverage_pct']}%")
-    print(f"Critical coverage: {ts_summary['critical_match_pct']}%")
+    print(f"Overall coverage: {stats_snapshot['coverage']['overall_pct']}%")
     print(f"BHOM critical without Truesight critical: {bhom_summary['unmatched_count']}")
     print(f"BHOM critical matched to Truesight non-critical: {bhom_summary['matched_to_noncritical_count']}")
     print(f"Matching documentation: {(output_dir / 'matching_documentation.html').resolve()}")
@@ -204,6 +214,12 @@ def main() -> None:
 
 def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def append_jsonl(path: Path, payload: object) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True))
+        handle.write("\n")
 
 
 def enrich_source_metadata(metadata: dict[str, object], events: list[object]) -> dict[str, object]:
@@ -221,6 +237,85 @@ def enrich_source_metadata(metadata: dict[str, object], events: list[object]) ->
 
 def format_timestamp(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
+
+
+def build_stats_snapshot(
+    summary: dict[str, object],
+    *,
+    truesight_to_bhom: dict[str, object],
+    run_timestamp: datetime,
+) -> dict[str, object]:
+    truesight = dict(summary["truesight"])
+    bhom = dict(summary["bhom"])
+    truesight_to_bhom_summary = dict(summary["truesight_to_bhom"])
+    bhom_to_truesight = dict(summary["bhom_to_truesight"])
+    issues = list(summary.get("issues", []))
+    overall_coverage = calculate_overall_coverage(truesight_to_bhom)
+
+    return {
+        "run_timestamp": format_timestamp(run_timestamp),
+        "truesight": {
+            "analyzed_event_count": truesight.get("analyzed_event_count"),
+            "start_time": truesight.get("start_time", ""),
+            "end_time": truesight.get("end_time", ""),
+            "critical_event_count": truesight_to_bhom_summary.get("critical_events_in_truesight"),
+        },
+        "bhom": {
+            "analyzed_event_count": bhom.get("analyzed_event_count"),
+            "start_time": bhom.get("start_time", ""),
+            "end_time": bhom.get("end_time", ""),
+        },
+        "coverage": {
+            "pairing_pct": truesight_to_bhom_summary.get("coverage_pct"),
+            "overall_pct": overall_coverage["overall_pct"],
+            "critical_pct": truesight_to_bhom_summary.get("critical_match_pct"),
+        },
+        "truesight_to_bhom": {
+            **truesight_to_bhom_summary,
+            "overall_match_count": overall_coverage["overall_match_count"],
+            "mismatch_count": overall_coverage["mismatch_count"],
+        },
+        "bhom_to_truesight": bhom_to_truesight,
+        "issue_count": len(issues),
+    }
+
+
+def calculate_overall_coverage(truesight_to_bhom: dict[str, object]) -> dict[str, object]:
+    matched_rows = list(truesight_to_bhom.get("matched", []))
+    critical_total = int(dict(truesight_to_bhom.get("summary", {})).get("critical_events_in_truesight", 0) or 0)
+    mismatch_ids = {
+        str(dict(row.get("truesight_event", {})).get("event_id", ""))
+        for row in matched_rows
+        if row.get("severity_alignment") != "critical" or row.get("responsibility_alignment") != "match"
+    }
+    mismatch_ids.discard("")
+    mismatch_count = len(mismatch_ids)
+    overall_match_count = max(len(matched_rows) - mismatch_count, 0)
+    overall_pct = round((overall_match_count / critical_total * 100), 2) if critical_total else 0.0
+    return {
+        "overall_match_count": overall_match_count,
+        "mismatch_count": mismatch_count,
+        "overall_pct": overall_pct,
+    }
+
+
+def write_stats_snapshot(stats_dir: Path, snapshot: dict[str, object]) -> None:
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = str(snapshot["run_timestamp"]).replace("-", "").replace(":", "").replace("Z", "Z").replace("+00:00", "Z")
+    filename_timestamp = timestamp.replace("T", "_")
+    write_json(stats_dir / "latest.json", snapshot)
+    write_json(stats_dir / f"stats_{filename_timestamp}.json", snapshot)
+    append_jsonl(stats_dir / "history.jsonl", snapshot)
+
+
+def load_stats_history(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def write_csv(

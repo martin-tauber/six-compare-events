@@ -27,6 +27,16 @@ def write_matching_documentation(
     path.write_text(render_matching_documentation_html(summary), encoding="utf-8")
 
 
+def write_statistics_report(
+    output_path: str | Path,
+    *,
+    current_snapshot: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> None:
+    path = Path(output_path)
+    path.write_text(render_statistics_html(current_snapshot=current_snapshot, history=history), encoding="utf-8")
+
+
 def coverage_percent(count: int, total: int) -> str:
     return f"{(count / total * 100):.2f}%" if total else "0.00%"
 
@@ -560,7 +570,10 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <h1>Event comparison browser</h1>
           <div class="subtle">Browse Truesight critical-event comparison results against BHOM.</div>
         </div>
-        <a class="link-button" href="matching_documentation.html">Matching documentation</a>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a class="link-button" href="statistics.html">Statistics</a>
+          <a class="link-button" href="matching_documentation.html">Matching documentation</a>
+        </div>
       </div>
       <div class="meta-grid">
         <div class="meta-card">
@@ -1011,6 +1024,243 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>msg_ident</code> and <code>fingerprint</code> are both used, but the current logic does <strong>not</strong> directly compare Truesight <code>msg_ident</code> to BHOM <code>six_fingerprint</code> as a dedicated rule.</li>
         <li>Repeated or deduplicated BHOM events can still create ambiguous cases.</li>
       </ul>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_statistics_html(*, current_snapshot: dict[str, Any], history: list[dict[str, Any]]) -> str:
+    pairing_values = [float(item.get("coverage", {}).get("pairing_pct", 0) or 0) for item in history]
+    overall_values = [float(item.get("coverage", {}).get("overall_pct", item.get("coverage", {}).get("critical_pct", 0)) or 0) for item in history]
+    total_runs = len(history)
+    best_pairing = max(pairing_values) if pairing_values else 0.0
+    best_overall = max(overall_values) if overall_values else 0.0
+    avg_pairing = sum(pairing_values) / total_runs if total_runs else 0.0
+    avg_overall = sum(overall_values) / total_runs if total_runs else 0.0
+    first_run = history[0].get("run_timestamp", "") if history else ""
+    last_run = history[-1].get("run_timestamp", "") if history else ""
+    current_ts = current_snapshot.get("truesight_to_bhom", {})
+    current_bhom = current_snapshot.get("bhom_to_truesight", {})
+    recent_runs = list(reversed(history[-10:]))
+
+    def percent(value: float) -> str:
+        return f"{value:.2f}%"
+
+    def value_from(snapshot: dict[str, Any], path: tuple[str, ...], default: str = "-") -> str:
+        current: Any = snapshot
+        for key in path:
+            if not isinstance(current, dict):
+                return default
+            current = current.get(key)
+        if current in (None, ""):
+            return default
+        return str(current)
+
+    rows_html = "\n".join(
+        f"""
+          <tr>
+            <td>{escape(format_header_timestamp(value_from(run, ("run_timestamp",), "")))}</td>
+            <td>{escape(value_from(run, ("truesight", "analyzed_event_count")))}</td>
+            <td>{escape(value_from(run, ("bhom", "analyzed_event_count")))}</td>
+            <td>{escape(value_from(run, ("truesight_to_bhom", "matched_count")))}</td>
+            <td>{escape(value_from(run, ("truesight_to_bhom", "ambiguous_count")))}</td>
+            <td>{escape(value_from(run, ("truesight_to_bhom", "unmatched_count")))}</td>
+            <td>{escape(percent(float(value_from(run, ("coverage", "pairing_pct"), "0"))))}</td>
+            <td>{escape(percent(float(value_from(run, ("coverage", "overall_pct"), value_from(run, ("coverage", "critical_pct"), "0")))))}</td>
+          </tr>
+        """
+        for run in recent_runs
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Statistics</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      --bg: #0b1020;
+      --panel: #121933;
+      --panel-alt: #172043;
+      --text: #e7ebff;
+      --muted: #aab4df;
+      --accent: #6ea8fe;
+      --border: #2a3668;
+    }}
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }}
+    .page {{
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }}
+    .cards {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }}
+    .current-run-cards {{
+      grid-template-columns: 1.8fr repeat(6, minmax(0, 1fr));
+    }}
+    .card, .mini {{
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }}
+    .current-run-cards .card {{
+      min-width: 0;
+    }}
+    .current-run-cards .value {{
+      font-size: 24px;
+    }}
+    .current-run-cards .timestamp-card .value {{
+      font-size: 16px;
+      white-space: nowrap;
+    }}
+    .label {{
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }}
+    .value {{
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+    }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }}
+    .subtle {{
+      color: var(--muted);
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }}
+    th, td {{
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }}
+    .link-button {{
+      display: inline-block;
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      border-radius: 999px;
+      padding: 10px 14px;
+      white-space: nowrap;
+      margin-bottom: 12px;
+    }}
+    @media (max-width: 1180px) {{
+      .current-run-cards {{
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }}
+      .current-run-cards .timestamp-card .value {{
+        white-space: normal;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <a class="link-button" href="index.html">Back to results browser</a>
+
+    <section class="panel">
+      <h1>Statistics</h1>
+      <p class="subtle">Current run metrics plus summarized history from the snapshots in <code>stats/</code>.</p>
+      <div class="cards">
+        <div class="card"><div class="label">Runs recorded</div><div class="value">{total_runs}</div></div>
+        <div class="card"><div class="label">Best pairing coverage</div><div class="value">{percent(best_pairing)}</div></div>
+        <div class="card"><div class="label">Best overall coverage</div><div class="value">{percent(best_overall)}</div></div>
+        <div class="card"><div class="label">Average pairing coverage</div><div class="value">{percent(avg_pairing)}</div></div>
+        <div class="card"><div class="label">Average overall coverage</div><div class="value">{percent(avg_overall)}</div></div>
+      </div>
+      <div class="grid">
+        <div class="mini"><strong>First run</strong><br><span class="subtle">{escape(format_header_timestamp(first_run))}</span></div>
+        <div class="mini"><strong>Latest run</strong><br><span class="subtle">{escape(format_header_timestamp(last_run))}</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Current run</h2>
+      <div class="cards current-run-cards">
+        <div class="card timestamp-card"><div class="label">Run timestamp</div><div class="value">{escape(format_header_timestamp(value_from(current_snapshot, ("run_timestamp",), "")))}</div></div>
+        <div class="card"><div class="label">Matched</div><div class="value">{escape(value_from(current_snapshot, ("truesight_to_bhom", "matched_count")))}</div></div>
+        <div class="card"><div class="label">Mismatches to check</div><div class="value">{escape(value_from(current_snapshot, ("truesight_to_bhom", "mismatch_count"), "0"))}</div></div>
+        <div class="card"><div class="label">Ambiguous</div><div class="value">{escape(value_from(current_snapshot, ("truesight_to_bhom", "ambiguous_count")))}</div></div>
+        <div class="card"><div class="label">Unmatched</div><div class="value">{escape(value_from(current_snapshot, ("truesight_to_bhom", "unmatched_count")))}</div></div>
+        <div class="card"><div class="label">Pairing coverage</div><div class="value">{percent(float(current_snapshot.get("coverage", {}).get("pairing_pct", 0) or 0))}</div></div>
+        <div class="card"><div class="label">Overall coverage</div><div class="value">{percent(float(current_snapshot.get("coverage", {}).get("overall_pct", current_snapshot.get("coverage", {}).get("critical_pct", 0)) or 0))}</div></div>
+      </div>
+      <div class="grid">
+        <div class="mini">
+          <strong>Truesight</strong><br>
+          <span class="subtle">Events: {escape(value_from(current_snapshot, ("truesight", "analyzed_event_count")))}</span><br>
+          <span class="subtle">Critical: {escape(value_from(current_snapshot, ("truesight", "critical_event_count")))}</span><br>
+          <span class="subtle">Start: {escape(format_header_timestamp(value_from(current_snapshot, ("truesight", "start_time"), "")))}</span><br>
+          <span class="subtle">End: {escape(format_header_timestamp(value_from(current_snapshot, ("truesight", "end_time"), "")))}</span>
+        </div>
+        <div class="mini">
+          <strong>BHOM</strong><br>
+          <span class="subtle">Events: {escape(value_from(current_snapshot, ("bhom", "analyzed_event_count")))}</span><br>
+          <span class="subtle">Critical: {escape(value_from(current_snapshot, ("bhom_to_truesight", "critical_events_in_bhom")))}</span><br>
+          <span class="subtle">Start: {escape(format_header_timestamp(value_from(current_snapshot, ("bhom", "start_time"), "")))}</span><br>
+          <span class="subtle">End: {escape(format_header_timestamp(value_from(current_snapshot, ("bhom", "end_time"), "")))}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Recent runs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Truesight events</th>
+            <th>BHOM events</th>
+            <th>Matched</th>
+            <th>Ambiguous</th>
+            <th>Unmatched</th>
+            <th>Pairing coverage</th>
+            <th>Overall coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
     </section>
   </div>
 </body>

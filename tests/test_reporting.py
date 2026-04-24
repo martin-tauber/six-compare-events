@@ -86,6 +86,7 @@ class ReportingTests(unittest.TestCase):
             ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched"],
             [section["id"] for section in payload["sections"]],
         )
+        self.assertEqual(2, len(payload["sections"][0]["rows"]))
         self.assertEqual(1, payload["overall_coverage_count"])
         self.assertEqual(1, payload["responsibility_mismatch_count"])
         self.assertEqual(1, payload["notification_mismatch_count"])

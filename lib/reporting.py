@@ -55,9 +55,9 @@ def build_browser_payload(
     summary: dict[str, Any],
     truesight_to_bhom: dict[str, Any],
 ) -> dict[str, Any]:
-    matched_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_critical"]]
+    matched_critical_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_critical"]]
     severity_mismatch_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]]
-    all_matched_rows = matched_rows + severity_mismatch_rows
+    all_matched_rows = matched_critical_rows + severity_mismatch_rows
     responsibility_mismatch_rows = [row for row in all_matched_rows if row["responsibility_alignment"] == "mismatch"]
     notification_mismatch_rows = [row for row in all_matched_rows if row["notification_alignment"] != "match"]
     overall_coverage_rows = [
@@ -77,8 +77,8 @@ def build_browser_payload(
             {
                 "id": "matched",
                 "label": "Matched",
-                "description": "Truesight critical events matched to BHOM critical events.",
-                "rows": matched_rows,
+                "description": "Truesight critical events with an accepted BHOM match, including severity mismatches.",
+                "rows": all_matched_rows,
             },
             {
                 "id": "severity-mismatch",

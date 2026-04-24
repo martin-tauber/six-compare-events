@@ -86,8 +86,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": "matched",
         "title": truesight_event["event_id"],
-        "object_class": truesight_event["object_class"],
-        "object_name": truesight_event["object_name"],
+        "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": bhom_event["severity"],
@@ -137,8 +136,7 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": "ambiguous",
         "title": truesight_event["event_id"],
-        "object_class": truesight_event["object_class"],
-        "object_name": truesight_event["object_name"],
+        "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": ", ".join(candidate["event"]["severity"] for candidate in candidates),
@@ -175,8 +173,7 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": "unmatched",
         "title": truesight_event["event_id"],
-        "object_class": truesight_event["object_class"],
-        "object_name": truesight_event["object_name"],
+        "message": truesight_event["message"],
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": "",
@@ -377,6 +374,22 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       color: var(--muted);
       max-width: 420px;
     }}
+    .message-column {{
+      min-width: 260px;
+      width: 260px;
+      max-width: 260px;
+    }}
+    .message-text {{
+      display: block;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+    .score-column {{
+      min-width: 220px;
+      width: 220px;
+    }}
     .score-box {{
       color: var(--muted);
       font-size: 12px;
@@ -386,6 +399,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       color: var(--text);
       font-weight: 700;
       margin-bottom: 4px;
+    }}
+    .score-toggle {{
+      margin-top: 6px;
+    }}
+    .score-toggle summary {{
+      font-size: 12px;
     }}
     details {{
       margin: 0;
@@ -498,15 +517,14 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <thead>
           <tr>
             <th>Event</th>
-            <th>Object class</th>
-            <th>Object</th>
             <th>Host</th>
+            <th class="message-column">Message</th>
             <th>Truesight severity</th>
             <th>BHOM severity</th>
             <th>Truesight resp</th>
             <th>BHOM resp</th>
             <th>Responsibility</th>
-            <th>Score / reason</th>
+            <th class="score-column">Score / reason</th>
             <th>Details</th>
           </tr>
         </thead>
@@ -523,22 +541,26 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           : escapeHtml(row.responsibility_alignment || "-");
         const scoreOrReason = row.kind === "matched"
           ? `
-              <div class="score-total">Total score: ${{escapeHtml(row.score)}}</div>
-              ${{row.details.score_breakdown ? `<div class="score-box">${{escapeHtml(formatScoreBreakdown(row.details.score_breakdown))}}</div>` : ""}}
+              <div class="score-total">${{escapeHtml(row.score)}}</div>
+              ${{row.details.score_breakdown ? `
+                <details class="score-toggle">
+                  <summary>Reason</summary>
+                  <div class="score-box">${{escapeHtml(formatScoreBreakdown(row.details.score_breakdown))}}</div>
+                </details>
+              ` : ""}}
             `
           : `${{escapeHtml(row.reason || "-")}}`;
 
         tr.innerHTML = `
           <td>${{escapeHtml(row.title)}}</td>
-          <td>${{escapeHtml(row.object_class || "-")}}</td>
-          <td>${{escapeHtml(row.object_name || "-")}}</td>
           <td>${{escapeHtml(row.host || "-")}}</td>
+          <td class="message-column"><span class="message-text" title="${{escapeHtml(row.message || "-")}}">${{escapeHtml(row.message || "-")}}</span></td>
           <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
           <td>${{severityAlignment}}</td>
           <td>${{escapeHtml(row.truesight_responsibility || "-")}}</td>
           <td>${{escapeHtml(row.bhom_responsibility || "-")}}</td>
           <td>${{responsibilityAlignment}}</td>
-          <td class="reason">${{scoreOrReason}}</td>
+          <td class="reason score-column">${{scoreOrReason}}</td>
           <td>
             <details>
               <summary>Open</summary>

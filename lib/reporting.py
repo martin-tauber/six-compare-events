@@ -417,13 +417,55 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       align-items: center;
       margin-bottom: 16px;
     }}
+    .toolbar-actions {{
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 8px;
+      align-items: center;
+      margin-left: auto;
+    }}
+    .toolbar-switch {{
+      display: inline-flex;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel-alt);
+      flex: 0 0 auto;
+    }}
+    .toolbar-switch button {{
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.1;
+    }}
+    .toolbar-switch button.active {{
+      background: rgba(110, 168, 254, .18);
+      color: var(--text);
+    }}
     input[type="search"] {{
-      width: min(460px, 100%);
+      width: 360px;
+      max-width: 100%;
       background: #0d1430;
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 12px;
+    }}
+    @media (max-width: 980px) {{
+      .toolbar-actions {{
+        flex-wrap: wrap;
+        width: 100%;
+        margin-left: 0;
+      }}
+      input[type="search"] {{
+        width: min(360px, 100%);
+      }}
     }}
     #table-container {{
       overflow-x: auto;
@@ -681,7 +723,13 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <div id="section-description" class="subtle"></div>
           <div id="section-count" class="subtle" style="margin-top:4px;"></div>
         </div>
-        <input id="search" type="search" placeholder="Search event id, object, host, message, severity...">
+        <div class="toolbar-actions">
+          <input id="search" type="search" placeholder="Search event id, object, host, message, severity...">
+          <div id="matched-filter" class="toolbar-switch" hidden>
+            <button id="matched-filter-all" type="button" class="active">All lines</button>
+            <button id="matched-filter-mismatch" type="button">Only mismatches</button>
+          </div>
+        </div>
       </div>
       <div id="table-container"></div>
     </section>
@@ -699,11 +747,14 @@ def render_browser_html(payload: dict[str, Any]) -> str:
 
   <script>
     const reportData = {data_json};
-    const state = {{ activeSectionId: reportData.sections[0].id, search: "" }};
+    const state = {{ activeSectionId: reportData.sections[0].id, search: "", matchedFilter: "all" }};
     const reasonModal = document.getElementById("reason-modal");
     const reasonModalTitle = document.getElementById("reason-modal-title");
     const reasonModalBody = document.getElementById("reason-modal-body");
     const reasonModalClose = document.getElementById("reason-modal-close");
+    const matchedFilter = document.getElementById("matched-filter");
+    const matchedFilterAll = document.getElementById("matched-filter-all");
+    const matchedFilterMismatch = document.getElementById("matched-filter-mismatch");
 
     function sectionById(id) {{
       return reportData.sections.find(section => section.id === id);
@@ -725,13 +776,33 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     }}
 
     function filteredRows(section) {{
+      let rows = section.rows;
+      if (section.id === "matched" && state.matchedFilter === "mismatch") {{
+        rows = rows.filter(hasMismatch);
+      }}
       const query = state.search.trim().toLowerCase();
-      if (!query) return section.rows;
-      return section.rows.filter(row => row.search_text.includes(query));
+      if (!query) return rows;
+      return rows.filter(row => row.search_text.includes(query));
+    }}
+
+    function hasMismatch(row) {{
+      return row.severity_alignment !== "critical"
+        || row.responsibility_alignment !== "match"
+        || row.notification_alignment !== "match";
+    }}
+
+    function renderToolbarControls(section) {{
+      const showMatchedFilter = section.id === "matched";
+      matchedFilter.hidden = !showMatchedFilter;
+      matchedFilter.style.display = showMatchedFilter ? "inline-flex" : "none";
+      if (!showMatchedFilter) return;
+      matchedFilterAll.classList.toggle("active", state.matchedFilter === "all");
+      matchedFilterMismatch.classList.toggle("active", state.matchedFilter === "mismatch");
     }}
 
     function renderTable() {{
       const section = sectionById(state.activeSectionId);
+      renderToolbarControls(section);
       const rows = filteredRows(section);
       document.getElementById("section-description").textContent = section.description;
       document.getElementById("section-count").textContent = `${{rows.length}} shown of ${{section.rows.length}}`;
@@ -937,6 +1008,14 @@ def render_browser_html(payload: dict[str, Any]) -> str:
 
     document.getElementById("search").addEventListener("input", (event) => {{
       state.search = event.target.value;
+      renderTable();
+    }});
+    matchedFilterAll.addEventListener("click", () => {{
+      state.matchedFilter = "all";
+      renderTable();
+    }});
+    matchedFilterMismatch.addEventListener("click", () => {{
+      state.matchedFilter = "mismatch";
       renderTable();
     }});
 

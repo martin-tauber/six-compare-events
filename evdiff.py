@@ -12,6 +12,7 @@ from lib import (
     load_bhom_events,
     load_truesight_events,
     write_browser_report,
+    write_mapping_documentation,
     write_matching_documentation,
     write_statistics_report,
 )
@@ -27,6 +28,11 @@ def main() -> None:
         "--output-dir",
         default="output",
         help="Directory where result files should be written",
+    )
+    parser.add_argument(
+        "--stats-dir",
+        default="stats",
+        help="Directory where statistics snapshots should be written",
     )
     args = parser.parse_args()
     run_timestamp = datetime.now(UTC)
@@ -78,8 +84,9 @@ def main() -> None:
     write_json(output_dir / "bhom_critical_ambiguous.json", bhom_to_truesight["ambiguous"])
     write_json(output_dir / "ingestion_issues.json", analysis_issues + truesight.issues + bhom.issues)
     write_browser_report(output_dir / "index.html", summary=summary, truesight_to_bhom=truesight_to_bhom)
+    write_mapping_documentation(output_dir / "mapping_documentation.html", summary=summary)
     write_matching_documentation(output_dir / "matching_documentation.html", summary=summary)
-    stats_dir = Path("stats")
+    stats_dir = Path(args.stats_dir)
     write_stats_snapshot(stats_dir, stats_snapshot)
     write_statistics_report(
         output_dir / "statistics.html",

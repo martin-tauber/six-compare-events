@@ -27,6 +27,15 @@ def write_matching_documentation(
     path.write_text(render_matching_documentation_html(summary), encoding="utf-8")
 
 
+def write_mapping_documentation(
+    output_path: str | Path,
+    *,
+    summary: dict[str, Any],
+) -> None:
+    path = Path(output_path)
+    path.write_text(render_mapping_documentation_html(summary), encoding="utf-8")
+
+
 def write_statistics_report(
     output_path: str | Path,
     *,
@@ -722,6 +731,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <a class="link-button" href="statistics.html">Statistics</a>
+          <a class="link-button" href="mapping_documentation.html">Mapping documentation</a>
           <a class="link-button" href="matching_documentation.html">Matching documentation</a>
         </div>
       </div>
@@ -1276,6 +1286,229 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li>The BHOM file used here is a partial sample, so “unmatched” does not always mean “missing in BHOM.”</li>
         <li><code>msg_ident</code> and <code>fingerprint</code> are both used, but the current logic does <strong>not</strong> directly compare Truesight <code>msg_ident</code> to BHOM <code>six_fingerprint</code> as a dedicated rule.</li>
         <li>Repeated or deduplicated BHOM events can still create ambiguous cases.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
+    issue_notes = build_issue_notes(summary.get("issues", []), docs_mode=True)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapping documentation</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      --bg: #0b1020;
+      --panel: #121933;
+      --panel-alt: #172043;
+      --text: #e7ebff;
+      --muted: #aab4df;
+      --border: #2a3668;
+    }}
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }}
+    .page {{
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }}
+    .subtle {{
+      color: var(--muted);
+    }}
+    .link-row {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }}
+    .link-button {{
+      display: inline-block;
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: var(--panel-alt);
+      border-radius: 999px;
+      padding: 10px 14px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-top: 16px;
+    }}
+    th, td {{
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }}
+    code {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 6px;
+    }}
+    ul {{
+      margin: 12px 0 0 20px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="link-row">
+      <a class="link-button" href="index.html">Back to results browser</a>
+    </div>
+
+    <section class="panel">
+      <h1>Mapping documentation</h1>
+      <p class="subtle">This page explains how Truesight fields are mapped to Helix/BHOM fields for event identification and for the mismatch views in the browser.</p>
+      {"".join(f'<p class="subtle">{escape(note)}</p>' for note in issue_notes)}
+    </section>
+
+    <section class="panel">
+      <h2>1. Event identity mapping</h2>
+      <p>The matcher first normalizes both sources into one shared event model. The strongest identity mapping is built from the Truesight quadruple <code>object</code> + <code>object_class</code> + <code>instance</code> + <code>parameter</code>, with BHOM using the equivalent normalized Helix fields.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Canonical meaning</th>
+            <th>Truesight source</th>
+            <th>Helix / BHOM source</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Event ID</td>
+            <td><code>mc_ueid</code> (fallback <code>event_handle</code>)</td>
+            <td><code>_identifier</code></td>
+            <td>Used for reporting, not as the primary cross-source match key.</td>
+          </tr>
+          <tr>
+            <td>Object class</td>
+            <td><code>mc_object_class</code></td>
+            <td><code>object_class</code></td>
+            <td>One of the highest-weight identity signals.</td>
+          </tr>
+          <tr>
+            <td>Object</td>
+            <td><code>mc_object</code></td>
+            <td><code>object</code></td>
+            <td>One of the highest-weight identity signals.</td>
+          </tr>
+          <tr>
+            <td>Instance</td>
+            <td><code>p_instance</code></td>
+            <td><code>p_instance</code> / <code>instancename</code></td>
+            <td>Falls back to object name when the source does not expose a separate instance.</td>
+          </tr>
+          <tr>
+            <td>Parameter / metric</td>
+            <td><code>mc_parameter</code></td>
+            <td><code>metric_name</code> / <code>al_parameter_name</code></td>
+            <td>Truesight parameter and BHOM metric are normalized into the same canonical comparison field.</td>
+          </tr>
+          <tr>
+            <td>Host</td>
+            <td><code>mc_host</code></td>
+            <td><code>source_hostname</code></td>
+            <td>Used directly and also inside the derived fingerprint.</td>
+          </tr>
+          <tr>
+            <td>Message fingerprint</td>
+            <td><code>msg_ident</code></td>
+            <td><code>six_msg_ident</code> / <code>six_fingerprint</code></td>
+            <td>Truesight <code>msg_ident</code> and BHOM fingerprint are normalized separately and used as candidate-collection signals.</td>
+          </tr>
+          <tr>
+            <td>Creation time</td>
+            <td><code>mc_incident_time</code></td>
+            <td><code>creation_time</code></td>
+            <td>Used for fallback matching and tie-breaking, not as a strict equality field.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>2. Field mapping for mismatch detection</h2>
+      <p>The mismatch tabs are driven by explicit field mappings after a match is accepted.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Mismatch view</th>
+            <th>Truesight field</th>
+            <th>Helix / BHOM field</th>
+            <th>How it is compared</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Severity mismatch</td>
+            <td><code>severity</code></td>
+            <td><code>severity</code></td>
+            <td>The match is considered severity-aligned only when BHOM remains <code>CRITICAL</code>.</td>
+          </tr>
+          <tr>
+            <td>Responsibility mismatch</td>
+            <td><code>resp</code></td>
+            <td><code>six_notification_group</code></td>
+            <td>Both values are normalized as notification-group strings and then compared directly.</td>
+          </tr>
+          <tr>
+            <td>Notification mismatch</td>
+            <td>derived from <code>alarm_type</code>, <code>resp_type</code>, <code>with_ars</code></td>
+            <td><code>six_notification_type</code></td>
+            <td>Truesight is first converted into an expected notification type, then compared to BHOM. <code>UNDEFINED</code> in BHOM is treated as not set.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>3. Notification-type derivation from Truesight</h2>
+      <p>For notification mismatches, Truesight does not use <code>resp_type</code> directly. The expected Helix notification type is derived with these rules:</p>
+      <ul>
+        <li><code>alarm_type=AUTO</code> + <code>resp_type=PAGER|ALL</code> + <code>with_ars=TRUE</code> -&gt; <code>ONCALL_ITSM</code></li>
+        <li><code>alarm_type=AUTO</code> + <code>resp_type=PAGER|ALL</code> -&gt; <code>ONCALL</code></li>
+        <li><code>alarm_type=AUTO</code> + <code>resp_type=ITSM</code> -&gt; <code>ITSM</code></li>
+        <li><code>alarm_type=AUTO</code> + <code>resp_type=MAIL</code> -&gt; <code>MAIL</code></li>
+        <li>otherwise -&gt; empty / not set</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>4. How the UI uses the mapping</h2>
+      <ul>
+        <li>The <strong>Matched</strong> view shows the mapped Truesight and BHOM values side by side.</li>
+        <li>The dedicated mismatch tabs show only the mapped fields relevant to that mismatch type.</li>
+        <li><strong>Overall coverage</strong> excludes matches where severity, responsibility, or notification mapping does not align.</li>
       </ul>
     </section>
   </div>

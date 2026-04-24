@@ -7,6 +7,7 @@ from pathlib import Path
 from lib.reporting import (
     build_browser_payload,
     write_browser_report,
+    write_mapping_documentation,
     write_matching_documentation,
     write_statistics_report,
 )
@@ -98,6 +99,9 @@ class ReportingTests(unittest.TestCase):
             report_path = Path(temp_dir) / "index.html"
             write_browser_report(report_path, summary=summary, truesight_to_bhom=truesight_to_bhom)
             html = report_path.read_text()
+            mapping_path = Path(temp_dir) / "mapping_documentation.html"
+            write_mapping_documentation(mapping_path, summary={**summary, "bhom_to_truesight": {"unmatched_count": 3}})
+            mapping_html = mapping_path.read_text()
             docs_path = Path(temp_dir) / "matching_documentation.html"
             write_matching_documentation(docs_path, summary={**summary, "bhom_to_truesight": {"unmatched_count": 3}})
             docs_html = docs_path.read_text()
@@ -135,6 +139,7 @@ class ReportingTests(unittest.TestCase):
             stats_html = stats_path.read_text()
 
         self.assertIn("Event comparison browser", html)
+        self.assertIn("Mapping documentation", html)
         self.assertIn("Matching documentation", html)
         self.assertIn("Truesight analysed", html)
         self.assertIn("BHOM analysed", html)
@@ -189,6 +194,12 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)
+        self.assertIn("Mapping documentation", mapping_html)
+        self.assertIn("Severity mismatch", mapping_html)
+        self.assertIn("Responsibility mismatch", mapping_html)
+        self.assertIn("Notification mismatch", mapping_html)
+        self.assertIn("six_notification_group", mapping_html)
+        self.assertIn("six_notification_type", mapping_html)
         self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", docs_html)
         self.assertIn("Statistics", stats_html)
         self.assertIn("Current run", stats_html)

@@ -1,6 +1,6 @@
 # evdiff
 
-`evdiff` compares Truesight and BHOM event dumps and reports how well critical events match between both systems.
+`evdiff` compares Truesight and BHOM event dumps and reports how well critical events match between both systems, including field-level mismatch checks for severity, responsibility, and notification behavior.
 
 ## Project layout
 
@@ -40,14 +40,26 @@ python3 evdiff.py \
   --output-dir output
 ```
 
+You can also override the statistics directory:
+
+```bash
+python3 evdiff.py \
+  --truesight input/truesight_20260423110000-20260423120000.baroc \
+  --bhom input/BHOM_20260423110000-20260423120000.json \
+  --output-dir output \
+  --stats-dir stats
+```
+
 ## Generated output
 
 Main files written to `output/`:
 
 - `index.html` - browser view of matched, severity, responsibility, notification, ambiguous, and unmatched events
-- `statistics.html` - current run stats plus summarized history from `stats/`
+- `statistics.html` - current run stats plus summarized history from the configured stats directory
+- `mapping_documentation.html` - Truesight to Helix/BHOM field mapping used for mismatch checks
 - `matching_documentation.html` - explanation of the matching and scoring logic
 - `summary.json` - overall metrics
+- `ingestion_issues.json` - warnings such as partial BHOM exports or analysis-window clamping
 - `matched_critical_events.json` / `.csv`
 - `matched_critical_to_critical.json`
 - `matched_critical_to_noncritical.json` / `.csv`
@@ -55,11 +67,13 @@ Main files written to `output/`:
 - `unmatched_critical_events.json` / `.csv`
 - reverse BHOM-to-Truesight result files
 
-Statistics snapshots are also written to `stats/`:
+Statistics snapshots are also written to the configured stats directory (`stats/` by default):
 
 - `latest.json` - most recent run
 - `history.jsonl` - one JSON record per unique input dataset fingerprint
 - `stats_<dataset_fingerprint>.json` - snapshot for a specific input dataset, overwritten when the same inputs are run again
+
+Each snapshot includes a dataset fingerprint derived from the two input files so rerunning the same dataset updates the existing stats entry instead of appending a duplicate run.
 
 Open the browser report directly in your browser:
 
@@ -72,16 +86,24 @@ open output/index.html
 The current implementation focuses on critical-event comparison:
 
 1. Load and normalize Truesight and BHOM events
-2. Limit analysis to the shared time window when the Truesight and BHOM sample ranges differ
-3. Match Truesight critical events to BHOM events
-4. Split results into:
+2. Limit the analyzed event set to the shared time window when the Truesight and BHOM sample ranges differ
+3. Keep candidate search on the full opposite source so time-clamped analysis can still match events outside the overlap when the scoring logic supports it
+4. Match Truesight critical events to BHOM events
+5. Split results into:
    - matched to BHOM critical
    - matched to BHOM non-critical
    - ambiguous
    - unmatched
-5. Run the reverse view for BHOM critical events
-6. Compare responsibility and notification type alignment for accepted matches
-7. Generate HTML, JSON, and CSV outputs
+6. Run the reverse view for BHOM critical events
+7. Compare responsibility and notification type alignment for accepted matches
+8. Generate HTML, JSON, and CSV outputs
+
+The browser report includes:
+
+- a matched view with all accepted matches and an inline mismatch-only switch
+- dedicated severity, responsibility, and notification mismatch views
+- warning banners for partial BHOM exports and analysis-window clamping
+- a statistics page with current-run metrics, historical summaries, and dataset fingerprints
 
 Matching uses a weighted score based on signals such as object class, object, instance, host, fingerprint, `msg_ident`, metric name, message similarity, and time proximity.
 
@@ -89,6 +111,7 @@ Matching uses a weighted score based on signals such as object class, object, in
 
 - Truesight input should be BAROC.
 - BHOM input is expected as the exported JSON dump currently used in this project.
+- For notification comparison, Truesight notification type is derived from `alarm_type`, `resp_type`, and `with_ars`, then compared to BHOM `six_notification_type`.
 - `output/`, `input/`, and `stats/` are ignored by Git in this repository.
 
 ## Tests

@@ -1,15 +1,60 @@
 {
   "bhom": {
     "event_count": 1000,
-    "path": "BHOM_20260423110000-20260423120000.json",
+    "path": "data/BHOM_20260423110000-20260423120000.json",
     "reported_total": 1663,
     "responses": 1
   },
-  "comparison": {
-    "ambiguous_count": 6,
-    "coverage_pct": 68.92,
+  "bhom_to_truesight": {
+    "ambiguous_count": 4,
+    "coverage_pct": 19.33,
+    "critical_events_in_bhom": 150,
+    "critical_match_pct": 18.67,
+    "matched_count": 29,
+    "matched_to_critical_count": 28,
+    "matched_to_noncritical_count": 1,
+    "top_unmatched_object_classes": [
+      {
+        "count": 73,
+        "object_class": "HELIX_COMPONENT"
+      },
+      {
+        "count": 25,
+        "object_class": "UNKNOWN"
+      },
+      {
+        "count": 18,
+        "object_class": "NUK_FileSystem"
+      },
+      {
+        "count": 1,
+        "object_class": "IAK_CPU"
+      }
+    ],
+    "unmatched_count": 117
+  },
+  "issues": [
+    {
+      "kind": "partial_export",
+      "materialized_hits": 1000,
+      "message": "Export contains fewer materialized hits than the reported total.",
+      "reported_total": 1663,
+      "source": "bhom"
+    }
+  ],
+  "truesight": {
+    "event_count": 1478,
+    "parser": "baroc",
+    "path": "data/truesight_20260423110000-20260423120000.baroc"
+  },
+  "truesight_to_bhom": {
+    "ambiguous_count": 5,
+    "coverage_pct": 70.27,
     "critical_events_in_truesight": 74,
-    "matched_count": 51,
+    "critical_match_pct": 59.46,
+    "matched_count": 52,
+    "matched_to_critical_count": 44,
+    "matched_to_noncritical_count": 8,
     "top_unmatched_object_classes": [
       {
         "count": 6,
@@ -41,82 +86,5 @@
       }
     ],
     "unmatched_count": 17
-  },
-  "issues": [
-    {
-      "column": 2798,
-      "kind": "invalid_json",
-      "line": 1560,
-      "message": "Expecting ',' delimiter: line 1560 column 2798 (char 56935)",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 1560,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 2400,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 2715,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 5190,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 6675,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 8310,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 13800,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "field": "msg",
-      "kind": "recovered_field",
-      "line": 21765,
-      "message": "Recovered field with loose string parsing.",
-      "source": "truesight"
-    },
-    {
-      "kind": "partial_export",
-      "materialized_hits": 1000,
-      "message": "Export contains fewer materialized hits than the reported total.",
-      "reported_total": 1663,
-      "source": "bhom"
-    }
-  ],
-  "truesight": {
-    "event_count": 1478,
-    "parser": "line_recovery",
-    "path": "truesight_20260423110000-20260423120000.json"
   }
 }

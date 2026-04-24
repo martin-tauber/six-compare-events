@@ -12,32 +12,41 @@ from .models import CanonicalEvent, LoadResult
 def load_truesight_events(path: str | Path) -> LoadResult:
     file_path = Path(path)
     text = file_path.read_text()
-    issues: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]]
 
-    try:
-        raw_events = json.loads(text)
+    if file_path.suffix.lower() == ".baroc":
+        raw_events, issues = parse_truesight_baroc(text)
         metadata = {
             "path": str(file_path),
-            "parser": "json",
+            "parser": "baroc",
             "event_count": len(raw_events),
         }
-    except json.JSONDecodeError as exc:
-        issues.append(
-            {
-                "source": "truesight",
-                "kind": "invalid_json",
-                "message": str(exc),
-                "line": exc.lineno,
-                "column": exc.colno,
+    else:
+        issues = []
+        try:
+            raw_events = json.loads(text)
+            metadata = {
+                "path": str(file_path),
+                "parser": "json",
+                "event_count": len(raw_events),
             }
-        )
-        raw_events, recovered_issues = parse_truesight_loose(text)
-        issues.extend(recovered_issues)
-        metadata = {
-            "path": str(file_path),
-            "parser": "line_recovery",
-            "event_count": len(raw_events),
-        }
+        except json.JSONDecodeError as exc:
+            issues.append(
+                {
+                    "source": "truesight",
+                    "kind": "invalid_json",
+                    "message": str(exc),
+                    "line": exc.lineno,
+                    "column": exc.colno,
+                }
+            )
+            raw_events, recovered_issues = parse_truesight_loose(text)
+            issues.extend(recovered_issues)
+            metadata = {
+                "path": str(file_path),
+                "parser": "line_recovery",
+                "event_count": len(raw_events),
+            }
 
     events = [normalize_truesight_event(event) for event in raw_events]
     return LoadResult(source="truesight", events=events, issues=issues, metadata=metadata)
@@ -119,6 +128,106 @@ def parse_truesight_loose(text: str) -> tuple[list[dict[str, Any]], list[dict[st
     return events, issues
 
 
+def parse_truesight_baroc(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+
+    current_event_type = ""
+    current_lines: list[tuple[int, str]] = []
+    start_line = 0
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        event_start = re.match(r"^([A-Z_][A-Z0-9_]*);$", stripped)
+
+        if not current_event_type:
+            if event_start:
+                current_event_type = event_start.group(1)
+                current_lines = []
+                start_line = line_number
+            continue
+
+        if stripped == "END":
+            event, event_issues = parse_truesight_baroc_event(current_event_type, current_lines, start_line)
+            events.append(event)
+            issues.extend(event_issues)
+            current_event_type = ""
+            current_lines = []
+            start_line = 0
+            continue
+
+        current_lines.append((line_number, line))
+
+    if current_event_type:
+        event, event_issues = parse_truesight_baroc_event(current_event_type, current_lines, start_line)
+        events.append(event)
+        issues.extend(event_issues)
+        issues.append(
+            {
+                "source": "truesight",
+                "kind": "unterminated_baroc_event",
+                "message": "Reached end of file before END marker.",
+                "event_type": current_event_type,
+                "line": start_line,
+            }
+        )
+
+    return events, issues
+
+
+def parse_truesight_baroc_event(
+    event_type: str,
+    lines: list[tuple[int, str]],
+    start_line: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    event: dict[str, Any] = {"event_type": event_type}
+    issues: list[dict[str, Any]] = []
+    buffer: list[tuple[int, str]] = []
+    in_quote = False
+    bracket_depth = 0
+
+    for line_number, line in lines:
+        buffer.append((line_number, line))
+        in_quote, bracket_depth, statement_complete = update_baroc_state(line, in_quote, bracket_depth)
+        if not statement_complete:
+            continue
+
+        statement = "\n".join(part for _, part in buffer).strip()
+        buffer = []
+        if statement.endswith(";"):
+            statement = statement[:-1]
+        if not statement:
+            continue
+
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", statement, flags=re.DOTALL)
+        if not match:
+            issues.append(
+                {
+                    "source": "truesight",
+                    "kind": "unparsed_baroc_statement",
+                    "message": "Skipped BAROC statement during parsing.",
+                    "line": line_number,
+                    "content": statement[:240],
+                }
+            )
+            continue
+
+        key, raw_value = match.groups()
+        event[key] = parse_baroc_value(raw_value.strip())
+
+    if buffer:
+        issues.append(
+            {
+                "source": "truesight",
+                "kind": "unfinished_baroc_statement",
+                "message": "BAROC statement did not terminate with semicolon.",
+                "line": buffer[0][0] if buffer else start_line,
+            }
+        )
+
+    return event, issues
+
+
 def parse_truesight_object(lines: list[str], start_line: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     event: dict[str, Any] = {}
     issues: list[dict[str, Any]] = []
@@ -175,20 +284,64 @@ def recover_string_value(raw_value: str) -> str:
     return text
 
 
+def update_baroc_state(line: str, in_quote: bool, bracket_depth: int) -> tuple[bool, int, bool]:
+    statement_complete = False
+    index = 0
+
+    while index < len(line):
+        char = line[index]
+
+        if in_quote:
+            if char == "'" and index + 1 < len(line) and line[index + 1] == "'":
+                index += 2
+                continue
+            if char == "'":
+                in_quote = False
+        else:
+            if char == "'":
+                in_quote = True
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]" and bracket_depth > 0:
+                bracket_depth -= 1
+            elif char == ";" and bracket_depth == 0:
+                statement_complete = True
+
+        index += 1
+
+    return in_quote, bracket_depth, statement_complete
+
+
+def parse_baroc_value(raw_value: str) -> Any:
+    text = raw_value.strip()
+    if text == "":
+        return ""
+    if text.startswith("'") and text.endswith("'"):
+        return text[1:-1].replace("''", "'")
+    if text.startswith("[") and text.endswith("]"):
+        return text
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    return text
+
+
 def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
     notes = []
-    creation_time = parse_timestamp(raw.get("creation_time"))
-    if creation_time is None and raw.get("creation_time"):
+    creation_time = parse_timestamp(raw.get("mc_incident_time") or raw.get("date_reception") or raw.get("date"))
+    if creation_time is None and (raw.get("mc_incident_time") or raw.get("date_reception") or raw.get("date")):
         notes.append("unparsed_creation_time")
-    object_name = stringify(raw.get("object"))
+    object_name = stringify(raw.get("mc_object") or raw.get("object"))
     message = stringify(raw.get("msg"))
     metric_name = extract_metric_name(message)
-    instance_name = extract_instance_hint(message) or object_name
-    parameter_name = extract_parameter_hint(message)
-    msg_ident = extract_msg_ident(message)
+    instance_name = stringify(raw.get("p_instance") or raw.get("instancename")) or extract_instance_hint(message) or object_name
+    parameter_name = stringify(raw.get("mc_parameter") or raw.get("p_parameter")) or extract_parameter_hint(message)
+    msg_ident = stringify(raw.get("msg_ident")) or extract_msg_ident(message)
+    host = stringify(raw.get("mc_host") or raw.get("six_host") or raw.get("p_node") or raw.get("source_hostname"))
+    object_class = stringify(raw.get("mc_object_class") or raw.get("object_class") or raw.get("event_type"))
+    source_identifier = stringify(raw.get("p_origin") or raw.get("mc_ueid"))
     fingerprint = build_fingerprint(
-        host=stringify(raw.get("source_hostname")),
-        object_class=stringify(raw.get("object_class")),
+        host=host,
+        object_class=object_class,
         object_name=object_name,
         instance_name=instance_name,
         parameter_name=parameter_name,
@@ -198,22 +351,22 @@ def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
 
     return CanonicalEvent(
         source="truesight",
-        event_id=stringify(raw.get("_identifier")),
+        event_id=stringify(raw.get("event_handle") or raw.get("_identifier") or raw.get("mc_ueid")),
         creation_time=creation_time,
         status=stringify(raw.get("status")).upper(),
         severity=stringify(raw.get("severity")).upper(),
-        object_class=stringify(raw.get("object_class")),
+        object_class=object_class,
         object_name=object_name,
         instance_name=instance_name,
         parameter_name=parameter_name,
         metric_name=metric_name,
-        host=stringify(raw.get("source_hostname")),
+        host=host,
         message=message,
         msg_ident=msg_ident,
         fingerprint=fingerprint,
-        source_identifier="",
-        notification_group=stringify(raw.get("six_notification_group")),
-        notification_type=stringify(raw.get("six_notification_type")).upper(),
+        source_identifier=source_identifier,
+        notification_group=stringify(raw.get("resp") or raw.get("six_notification_group")),
+        notification_type=stringify(raw.get("resp_type") or raw.get("six_notification_type")).upper(),
         raw=raw,
         ingestion_notes=tuple(notes),
     )
@@ -269,15 +422,26 @@ def parse_timestamp(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
     if isinstance(value, int):
-        return datetime.fromtimestamp(value / 1000, tz=UTC)
+        return datetime.fromtimestamp(value / 1000, tz=UTC) if abs(value) >= 10**12 else datetime.fromtimestamp(value, tz=UTC)
     if isinstance(value, float):
-        return datetime.fromtimestamp(value / 1000, tz=UTC)
+        return datetime.fromtimestamp(value / 1000, tz=UTC) if abs(value) >= 10**12 else datetime.fromtimestamp(value, tz=UTC)
 
     text = stringify(value)
     if not text:
         return None
     if text.isdigit():
-        return datetime.fromtimestamp(int(text) / 1000, tz=UTC)
+        numeric = int(text)
+        return datetime.fromtimestamp(numeric / 1000, tz=UTC) if abs(numeric) >= 10**12 else datetime.fromtimestamp(numeric, tz=UTC)
+
+    if re.fullmatch(r"\d{14}\.\d{6}[+-]\d{3}", text):
+        match = re.match(r"^(\d{14})\.\d{6}([+-])(\d{3})$", text)
+        if match:
+            base, sign, offset = match.groups()
+            local_time = datetime.strptime(base, "%Y%m%d%H%M%S")
+            offset_minutes = int(offset)
+            if sign == "+":
+                return local_time.replace(tzinfo=UTC)  # fallback if offset is non-standard
+            return local_time.replace(tzinfo=UTC)
 
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
         try:

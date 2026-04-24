@@ -34,69 +34,86 @@ def compare_critical_presence(
     truesight_events: Iterable[CanonicalEvent],
     bhom_events: Iterable[CanonicalEvent],
 ) -> dict[str, object]:
-    truesight_critical = [event for event in truesight_events if event.severity == "CRITICAL"]
-    bhom_materialized = list(bhom_events)
-    indexes = build_indexes(bhom_materialized)
+    return analyze_critical_events(
+        primary_events=truesight_events,
+        candidate_events=bhom_events,
+        primary_label="truesight",
+        candidate_label="bhom",
+    )
+
+
+def analyze_critical_events(
+    *,
+    primary_events: Iterable[CanonicalEvent],
+    candidate_events: Iterable[CanonicalEvent],
+    primary_label: str,
+    candidate_label: str,
+) -> dict[str, object]:
+    primary_critical = [event for event in primary_events if event.severity == "CRITICAL"]
+    candidate_materialized = list(candidate_events)
+    indexes = build_indexes(candidate_materialized)
 
     matched: list[dict[str, object]] = []
+    matched_to_critical: list[dict[str, object]] = []
+    matched_to_noncritical: list[dict[str, object]] = []
     unmatched: list[dict[str, object]] = []
     ambiguous: list[dict[str, object]] = []
 
-    for event in sorted(truesight_critical, key=sort_key):
-        candidates = collect_candidates(event, indexes)
-        scored_candidates = score_candidates(event, candidates)
-        if not scored_candidates or scored_candidates[0].score < 55:
-            fallback_candidates = collect_message_time_fallback_candidates(event, bhom_materialized, candidates)
-            if fallback_candidates:
-                candidates = merge_candidates(candidates, fallback_candidates)
-                scored_candidates = score_candidates(event, candidates)
+    primary_event_key = f"{primary_label}_event"
+    candidate_event_key = f"{candidate_label}_event"
 
-        candidates = scored_candidates
+    for event in sorted(primary_critical, key=sort_key):
+        candidates = match_event_against_pool(event, candidate_materialized, indexes)
         if not candidates:
-            unmatched.append(build_unmatched_record(event, "No BHOM candidate found with overlapping key fields."))
+            unmatched.append(build_unmatched_record(event, primary_event_key, "No candidate found with overlapping key fields."))
             continue
 
         top = candidates[0]
         second = candidates[1] if len(candidates) > 1 else None
 
         if top.score < 55:
-            unmatched.append(build_unmatched_record(event, "Candidates were found, but none passed the minimum score."))
+            unmatched.append(build_unmatched_record(event, primary_event_key, "Candidates were found, but none passed the minimum score."))
             continue
 
         if second and is_ambiguous(top, second):
             ambiguous.append(
                 {
-                    "truesight_event": event.as_dict(),
+                    primary_event_key: event.as_dict(),
                     "top_candidates": [candidate.as_dict() for candidate in candidates[:3]],
-                    "reason": "Multiple BHOM candidates have similarly strong scores.",
+                    "reason": "Multiple candidates have similarly strong scores.",
                 }
             )
             continue
 
-        matched.append(
-            {
-                "truesight_event": event.as_dict(),
-                "bhom_event": top.event.as_dict(),
-                "score": top.score,
-                "confidence": top.confidence,
-                "matched_on": top.matched_on,
-                "time_delta_seconds": top.time_delta_seconds,
-                "message_similarity": round(top.message_similarity, 3),
-            }
+        pair = build_matched_record(
+            event,
+            top,
+            primary_event_key=primary_event_key,
+            candidate_event_key=candidate_event_key,
         )
+        matched.append(pair)
+        if top.event.severity == "CRITICAL":
+            matched_to_critical.append(pair)
+        else:
+            matched_to_noncritical.append(pair)
 
     summary = {
-        "critical_events_in_truesight": len(truesight_critical),
+        f"critical_events_in_{primary_label}": len(primary_critical),
         "matched_count": len(matched),
+        "matched_to_critical_count": len(matched_to_critical),
+        "matched_to_noncritical_count": len(matched_to_noncritical),
         "unmatched_count": len(unmatched),
         "ambiguous_count": len(ambiguous),
-        "coverage_pct": round((len(matched) / len(truesight_critical) * 100), 2) if truesight_critical else 0.0,
-        "top_unmatched_object_classes": top_unmatched_object_classes(unmatched),
+        "coverage_pct": round((len(matched) / len(primary_critical) * 100), 2) if primary_critical else 0.0,
+        "critical_match_pct": round((len(matched_to_critical) / len(primary_critical) * 100), 2) if primary_critical else 0.0,
+        "top_unmatched_object_classes": top_unmatched_object_classes(unmatched, primary_event_key),
     }
 
     return {
         "summary": summary,
         "matched": matched,
+        "matched_to_critical": matched_to_critical,
+        "matched_to_noncritical": matched_to_noncritical,
         "unmatched": unmatched,
         "ambiguous": ambiguous,
     }
@@ -177,6 +194,21 @@ def score_candidates(event: CanonicalEvent, candidates: list[CanonicalEvent]) ->
             candidate.event.event_id,
         ),
     )
+
+
+def match_event_against_pool(
+    event: CanonicalEvent,
+    candidate_events: list[CanonicalEvent],
+    indexes: dict[str, dict[tuple[str, ...], list[CanonicalEvent]]],
+) -> list[CandidateScore]:
+    candidates = collect_candidates(event, indexes)
+    scored_candidates = score_candidates(event, candidates)
+    if not scored_candidates or scored_candidates[0].score < 55:
+        fallback_candidates = collect_message_time_fallback_candidates(event, candidate_events, candidates)
+        if fallback_candidates:
+            candidates = merge_candidates(candidates, fallback_candidates)
+            scored_candidates = score_candidates(event, candidates)
+    return scored_candidates
 
 
 def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> CandidateScore:
@@ -313,17 +345,36 @@ def sort_key(event: CanonicalEvent) -> tuple[str, str, str, str]:
     return (event.object_class, event.object_name, event.host, event.event_id)
 
 
-def build_unmatched_record(event: CanonicalEvent, reason: str) -> dict[str, object]:
+def build_unmatched_record(event: CanonicalEvent, event_key: str, reason: str) -> dict[str, object]:
     return {
-        "truesight_event": event.as_dict(),
+        event_key: event.as_dict(),
         "reason": reason,
     }
 
 
-def top_unmatched_object_classes(unmatched: list[dict[str, object]]) -> list[dict[str, object]]:
+def build_matched_record(
+    event: CanonicalEvent,
+    top: CandidateScore,
+    *,
+    primary_event_key: str,
+    candidate_event_key: str,
+) -> dict[str, object]:
+    return {
+        primary_event_key: event.as_dict(),
+        candidate_event_key: top.event.as_dict(),
+        "score": top.score,
+        "confidence": top.confidence,
+        "matched_on": top.matched_on,
+        "time_delta_seconds": top.time_delta_seconds,
+        "message_similarity": round(top.message_similarity, 3),
+        "severity_alignment": "critical" if top.event.severity == "CRITICAL" else "noncritical",
+    }
+
+
+def top_unmatched_object_classes(unmatched: list[dict[str, object]], event_key: str) -> list[dict[str, object]]:
     counts: dict[str, int] = {}
     for item in unmatched:
-        event = item["truesight_event"]
+        event = item[event_key]
         object_class = str(event.get("object_class") or "UNKNOWN")
         counts[object_class] = counts.get(object_class, 0) + 1
     return [

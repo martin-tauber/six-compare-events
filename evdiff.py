@@ -5,7 +5,7 @@ import csv
 import json
 from pathlib import Path
 
-from event_compare import (
+from lib import (
     analyze_critical_events,
     load_bhom_events,
     load_truesight_events,
@@ -22,7 +22,7 @@ def main() -> None:
     parser.add_argument("--bhom", required=True, help="Path to the BHOM dump")
     parser.add_argument(
         "--output-dir",
-        default="comparison_output",
+        default="output",
         help="Directory where result files should be written",
     )
     args = parser.parse_args()

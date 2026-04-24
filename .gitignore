@@ -1,5 +1,5 @@
-/data/
-/comparison_output/
+/input/
+/output/
 /.idea/
-/event_compare/__pycache__/
+/lib/__pycache__/
 /tests/__pycache__/

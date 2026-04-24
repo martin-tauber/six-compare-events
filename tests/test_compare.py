@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from event_compare.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
-from event_compare.matching import compare_critical_presence
+from lib.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
+from lib.matching import compare_critical_presence
 
 
 class LoaderTests(unittest.TestCase):

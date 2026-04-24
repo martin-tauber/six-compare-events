@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from event_compare.reporting import build_browser_payload, write_browser_report, write_matching_documentation
+from lib.reporting import build_browser_payload, write_browser_report, write_matching_documentation
 
 
 class ReportingTests(unittest.TestCase):

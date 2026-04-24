@@ -373,7 +373,18 @@ def build_matched_record(
         "time_delta_seconds": top.time_delta_seconds,
         "message_similarity": round(top.message_similarity, 3),
         "severity_alignment": "critical" if top.event.severity == "CRITICAL" else "noncritical",
+        "responsibility_alignment": compare_responsibility(event, top.event),
     }
+
+
+def compare_responsibility(left: CanonicalEvent, right: CanonicalEvent) -> str:
+    left_group = normalize_text(left.notification_group)
+    right_group = normalize_text(right.notification_group)
+    if not left_group or not right_group:
+        return "missing"
+    if left_group == right_group:
+        return "match"
+    return "mismatch"
 
 
 def top_unmatched_object_classes(unmatched: list[dict[str, object]], event_key: str) -> list[dict[str, object]]:

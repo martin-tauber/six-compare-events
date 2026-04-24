@@ -31,20 +31,32 @@ def build_browser_payload(
     summary: dict[str, Any],
     truesight_to_bhom: dict[str, Any],
 ) -> dict[str, Any]:
+    matched_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_critical"]]
+    severity_mismatch_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]]
+    all_matched_rows = matched_rows + severity_mismatch_rows
+    responsibility_mismatch_rows = [row for row in all_matched_rows if row["responsibility_alignment"] == "mismatch"]
+
     return {
         "summary": summary,
+        "responsibility_mismatch_count": len(responsibility_mismatch_rows),
         "sections": [
             {
                 "id": "matched",
                 "label": "Matched",
                 "description": "Truesight critical events matched to BHOM critical events.",
-                "rows": [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_critical"]],
+                "rows": matched_rows,
             },
             {
                 "id": "severity-mismatch",
                 "label": "Severity mismatch",
                 "description": "Truesight critical events that match a BHOM event, but BHOM is not critical.",
-                "rows": [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]],
+                "rows": severity_mismatch_rows,
+            },
+            {
+                "id": "responsibility-mismatch",
+                "label": "Responsibility mismatch",
+                "description": "Accepted matches where Truesight resp and BHOM six_notification_group are different.",
+                "rows": responsibility_mismatch_rows,
             },
             {
                 "id": "ambiguous",
@@ -73,6 +85,9 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": bhom_event["severity"],
+        "truesight_responsibility": truesight_event["notification_group"],
+        "bhom_responsibility": bhom_event["notification_group"],
+        "responsibility_alignment": row["responsibility_alignment"],
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": bhom_event["creation_time"],
         "notification_group": truesight_event["notification_group"],
@@ -89,6 +104,8 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
                 truesight_event["host"],
                 truesight_event["severity"],
                 bhom_event["severity"],
+                truesight_event["notification_group"],
+                bhom_event["notification_group"],
                 truesight_event["message"],
                 bhom_event["message"],
             ]
@@ -100,6 +117,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
             "score_breakdown": row["score_breakdown"],
             "confidence": row["confidence"],
             "severity_alignment": row["severity_alignment"],
+            "responsibility_alignment": row["responsibility_alignment"],
             "matched_on": row["matched_on"],
             "message_similarity": row["message_similarity"],
             "time_delta_seconds": row["time_delta_seconds"],
@@ -118,6 +136,9 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": ", ".join(candidate["event"]["severity"] for candidate in candidates),
+        "truesight_responsibility": truesight_event["notification_group"],
+        "bhom_responsibility": ", ".join(candidate["event"]["notification_group"] for candidate in candidates),
+        "responsibility_alignment": "",
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": "",
         "notification_group": truesight_event["notification_group"],
@@ -153,6 +174,9 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
         "host": truesight_event["host"],
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": "",
+        "truesight_responsibility": truesight_event["notification_group"],
+        "bhom_responsibility": "",
+        "responsibility_alignment": "",
         "truesight_creation_time": truesight_event["creation_time"],
         "bhom_creation_time": "",
         "notification_group": truesight_event["notification_group"],
@@ -324,6 +348,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     }}
     .pill.critical {{ color: #ffb3b3; }}
     .pill.noncritical {{ color: #f2cc60; }}
+    .pill.match {{ color: #8ddb8c; }}
+    .pill.mismatch {{ color: #f2cc60; }}
+    .pill.missing {{ color: var(--muted); }}
     .reason {{
       color: var(--muted);
       max-width: 420px;
@@ -387,6 +414,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <div class="card"><div class="label">Truesight critical</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>
         <div class="card"><div class="label">Matched to BHOM critical</div><div class="value">{ts_summary['matched_to_critical_count']}</div></div>
         <div class="card"><div class="label">Matched to BHOM non-critical</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div></div>
+        <div class="card"><div class="label">Responsibility mismatch</div><div class="value">{payload['responsibility_mismatch_count']}</div></div>
         <div class="card"><div class="label">Ambiguous</div><div class="value">{ts_summary['ambiguous_count']}</div></div>
         <div class="card"><div class="label">No BHOM candidate</div><div class="value">{ts_summary['unmatched_count']}</div></div>
         <div class="card"><div class="label">Critical coverage</div><div class="value">{ts_summary['critical_match_pct']}%</div></div>
@@ -453,6 +481,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
             <th>Host</th>
             <th>Truesight severity</th>
             <th>BHOM severity</th>
+            <th>Truesight resp</th>
+            <th>BHOM resp</th>
+            <th>Responsibility</th>
             <th>Score / reason</th>
             <th>Details</th>
           </tr>
@@ -465,6 +496,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const severityAlignment = row.kind === "matched"
           ? `<span class="pill ${{row.bhom_severity === "CRITICAL" ? "critical" : "noncritical"}}">${{row.bhom_severity || "-"}}</span>`
           : row.bhom_severity || "-";
+        const responsibilityAlignment = row.kind === "matched"
+          ? `<span class="pill ${{row.responsibility_alignment}}">${{escapeHtml(row.responsibility_alignment || "-")}}</span>`
+          : escapeHtml(row.responsibility_alignment || "-");
         const scoreOrReason = row.kind === "matched"
           ? `
               <div class="score-total">Total score: ${{escapeHtml(row.score)}}</div>
@@ -479,6 +513,9 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <td>${{escapeHtml(row.host || "-")}}</td>
           <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
           <td>${{severityAlignment}}</td>
+          <td>${{escapeHtml(row.truesight_responsibility || "-")}}</td>
+          <td>${{escapeHtml(row.bhom_responsibility || "-")}}</td>
+          <td>${{responsibilityAlignment}}</td>
           <td class="reason">${{scoreOrReason}}</td>
           <td>
             <details>
@@ -645,7 +682,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>notification_group</code></li>
         <li><code>severity</code></li>
       </ul>
-      <p>For Truesight, the BAROC export is used directly, so slots like <code>p_instance</code>, <code>mc_parameter</code>, <code>msg_ident</code>, <code>resp</code>, and <code>resp_type</code> are read from the source instead of reconstructed from JSON.</p>
+      <p>For Truesight, the BAROC export is used directly, so slots like <code>p_instance</code>, <code>mc_parameter</code>, <code>msg_ident</code>, <code>resp</code>, and <code>resp_type</code> are read from the source instead of reconstructed from JSON. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>.</p>
     </section>
 
     <section class="panel">
@@ -737,7 +774,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><strong>Ambiguous</strong>: multiple BHOM candidates remain plausible</li>
         <li><strong>No BHOM candidate</strong>: no candidate in the current BHOM sample reached the minimum threshold</li>
       </ul>
-      <p>The reverse analysis uses the same logic in the other direction to find BHOM critical events that have no Truesight critical counterpart.</p>
+      <p>The reverse analysis uses the same logic in the other direction to find BHOM critical events that have no Truesight critical counterpart. In the browser UI, accepted matches also show a responsibility comparison based on Truesight <code>resp</code> and BHOM <code>six_notification_group</code>, including a dedicated responsibility-mismatch view.</p>
     </section>
 
     <section class="panel">

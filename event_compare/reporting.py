@@ -97,6 +97,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
             "truesight_event": truesight_event,
             "bhom_event": bhom_event,
             "score": row["score"],
+            "score_breakdown": row["score_breakdown"],
             "confidence": row["confidence"],
             "severity_alignment": row["severity_alignment"],
             "matched_on": row["matched_on"],
@@ -327,6 +328,16 @@ def render_browser_html(payload: dict[str, Any]) -> str:
       color: var(--muted);
       max-width: 420px;
     }}
+    .score-box {{
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }}
+    .score-total {{
+      color: var(--text);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }}
     details {{
       margin: 0;
     }}
@@ -442,7 +453,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
             <th>Host</th>
             <th>Truesight severity</th>
             <th>BHOM severity</th>
-            <th>Reason / match</th>
+            <th>Score / reason</th>
             <th>Details</th>
           </tr>
         </thead>
@@ -454,6 +465,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         const severityAlignment = row.kind === "matched"
           ? `<span class="pill ${{row.bhom_severity === "CRITICAL" ? "critical" : "noncritical"}}">${{row.bhom_severity || "-"}}</span>`
           : row.bhom_severity || "-";
+        const scoreOrReason = row.kind === "matched"
+          ? `
+              <div class="score-total">Total score: ${{escapeHtml(row.score)}}</div>
+              ${{row.details.score_breakdown ? `<div class="score-box">${{escapeHtml(formatScoreBreakdown(row.details.score_breakdown))}}</div>` : ""}}
+            `
+          : `${{escapeHtml(row.reason || "-")}}`;
 
         tr.innerHTML = `
           <td>${{escapeHtml(row.title)}}</td>
@@ -462,7 +479,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <td>${{escapeHtml(row.host || "-")}}</td>
           <td><span class="pill critical">${{escapeHtml(row.truesight_severity || "-")}}</span></td>
           <td>${{severityAlignment}}</td>
-          <td class="reason">${{escapeHtml(row.reason || row.matched_on || "-")}}</td>
+          <td class="reason">${{scoreOrReason}}</td>
           <td>
             <details>
               <summary>Open</summary>
@@ -483,6 +500,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;");
+    }}
+
+    function formatScoreBreakdown(scoreBreakdown) {{
+      return Object.entries(scoreBreakdown)
+        .map(([key, value]) => `${{key}}: +${{value}}`)
+        .join(" | ");
     }}
 
     function render() {{
@@ -654,6 +677,37 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
     </section>
 
     <section class="panel">
+      <h2>3a. Current score weights and thresholds</h2>
+      <p>The current implementation uses these point values:</p>
+      <ul>
+        <li><code>object_class</code> match: <strong>+35</strong></li>
+        <li><code>object</code> match: <strong>+35</strong></li>
+        <li><code>fingerprint</code> match: <strong>+28</strong></li>
+        <li><code>instance</code> match: <strong>+25</strong></li>
+        <li><code>msg_ident</code> match: <strong>+22</strong></li>
+        <li><code>host</code> match: <strong>+20</strong></li>
+        <li><code>metric_name</code> match: <strong>+18</strong></li>
+        <li><code>message_time_fallback</code>: <strong>+18</strong> or <strong>+12</strong></li>
+        <li><code>object_to_instance</code>: <strong>+14</strong></li>
+        <li>time delta <code>&lt;= 5 min</code>: <strong>+12</strong></li>
+        <li>exact normalized message signature: <strong>+10</strong></li>
+        <li>time delta <code>&lt;= 1 hour</code>: <strong>+8</strong></li>
+        <li>message similarity <code>&gt;= 0.9</code>: <strong>+8</strong></li>
+        <li>time delta <code>&lt;= 3 hours</code>: <strong>+5</strong></li>
+        <li>message similarity <code>&gt;= 0.75</code>: <strong>+5</strong></li>
+        <li><code>notification_group</code> match: <strong>+4</strong></li>
+        <li><code>severity</code> match: <strong>+3</strong></li>
+      </ul>
+      <p>Confidence labels are assigned after the total score is calculated:</p>
+      <ul>
+        <li><strong>high</strong>: score <code>&gt;= 95</code></li>
+        <li><strong>medium</strong>: score <code>&gt;= 70</code></li>
+        <li><strong>low</strong>: score below <code>70</code></li>
+      </ul>
+      <p>A candidate becomes a direct match only if the best candidate reaches at least <code>55</code> points.</p>
+    </section>
+
+    <section class="panel">
       <h2>4. Time and message fallback</h2>
       <p>When key-based matching is weak or missing, the matcher can still propose candidates if:</p>
       <ul>
@@ -662,6 +716,17 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
       </ul>
       <p>and the creation times are within a limited time window.</p>
       <p>This fallback is also used to break ties between repeated BHOM events: if two candidates are otherwise very similar, the one that is materially closer in time is preferred.</p>
+    </section>
+
+    <section class="panel">
+      <h2>4a. When a case becomes ambiguous</h2>
+      <p>A case is marked as ambiguous instead of matched when the top two candidates remain too close after scoring. In the current implementation, ambiguity is triggered when:</p>
+      <ul>
+        <li>the score gap between the best and second-best candidate is <code>&lt;= 2</code>,</li>
+        <li>the message similarity gap is below <code>0.03</code>, and</li>
+        <li>the second candidate is not more than <code>10 minutes</code> worse in creation-time distance.</li>
+      </ul>
+      <p>In other words, if two candidates still look almost equally good, the app prefers to surface them for review instead of pretending the choice is certain.</p>
     </section>
 
     <section class="panel">

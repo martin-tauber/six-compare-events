@@ -94,6 +94,8 @@ END
         self.assertEqual(1, result["summary"]["matched_count"])
         self.assertEqual(0, result["summary"]["unmatched_count"])
         self.assertEqual("bhom-1", result["matched"][0]["bhom_event"]["event_id"])
+        self.assertIn("score_breakdown", result["matched"][0])
+        self.assertGreater(result["matched"][0]["score_breakdown"]["object"], 0)
 
     def test_truesight_msg_ident_is_extracted_from_message(self) -> None:
         truesight_payload = """PATROL_EV;
@@ -177,6 +179,7 @@ END
         self.assertEqual(1, result["summary"]["matched_count"])
         self.assertEqual("bhom-2", result["matched"][0]["bhom_event"]["event_id"])
         self.assertIn("message_time_fallback", result["matched"][0]["matched_on"])
+        self.assertIn("message_time_fallback", result["matched"][0]["score_breakdown"])
 
     def test_severity_mismatch_is_classified_separately(self) -> None:
         truesight_payload = """PATROL_EV;

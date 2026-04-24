@@ -1,9 +1,0 @@
-[
-  {
-    "kind": "partial_export",
-    "materialized_hits": 1000,
-    "message": "Export contains fewer materialized hits than the reported total.",
-    "reported_total": 1663,
-    "source": "bhom"
-  }
-]

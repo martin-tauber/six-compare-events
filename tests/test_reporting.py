@@ -28,6 +28,7 @@ class ReportingTests(unittest.TestCase):
                     "confidence": "high",
                     "score": 100,
                     "matched_on": ["object"],
+                    "score_breakdown": {"object": 35, "host": 20},
                     "severity_alignment": "critical",
                     "message_similarity": 1.0,
                     "time_delta_seconds": 0,
@@ -52,6 +53,9 @@ class ReportingTests(unittest.TestCase):
 
         self.assertIn("Event comparison browser", html)
         self.assertIn("Matching documentation", html)
+        self.assertIn('"score_breakdown"', html)
+        self.assertIn('"object": 35', html)
+        self.assertIn("Total score", html)
         self.assertIn("Severity mismatch", html)
         self.assertIn("No BHOM candidate", html)
         self.assertIn("Matching documentation", docs_html)

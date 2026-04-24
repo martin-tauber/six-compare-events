@@ -16,6 +16,7 @@ class CandidateScore:
     score: int
     confidence: str
     matched_on: list[str]
+    score_breakdown: dict[str, int]
     time_delta_seconds: int | None
     message_similarity: float
 
@@ -25,6 +26,7 @@ class CandidateScore:
             "score": self.score,
             "confidence": self.confidence,
             "matched_on": self.matched_on,
+            "score_breakdown": self.score_breakdown,
             "time_delta_seconds": self.time_delta_seconds,
             "message_similarity": round(self.message_similarity, 3),
         }
@@ -214,6 +216,7 @@ def match_event_against_pool(
 def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> CandidateScore:
     matched_on: list[str] = []
     score = 0
+    score_breakdown: dict[str, int] = {}
     same_object_class = normalize_text(event.object_class) and normalize_text(event.object_class) == normalize_text(candidate.object_class)
     same_object_name = normalize_text(event.object_name) and normalize_text(event.object_name) == normalize_text(candidate.object_name)
     same_instance_name = normalize_text(event.instance_name) and normalize_text(event.instance_name) == normalize_text(candidate.instance_name)
@@ -224,55 +227,55 @@ def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> Candida
     object_to_instance = normalize_text(event.object_name) and normalize_text(event.object_name) == normalize_text(candidate.instance_name)
 
     if same_object_class:
-        score += 35
+        score += add_score(score_breakdown, "object_class", 35)
         matched_on.append("object_class")
 
     if same_object_name:
-        score += 35
+        score += add_score(score_breakdown, "object", 35)
         matched_on.append("object")
 
     if same_instance_name:
-        score += 25
+        score += add_score(score_breakdown, "instance", 25)
         matched_on.append("instance")
 
     if same_msg_ident:
-        score += 22
+        score += add_score(score_breakdown, "msg_ident", 22)
         matched_on.append("msg_ident")
 
     if same_fingerprint:
-        score += 28
+        score += add_score(score_breakdown, "fingerprint", 28)
         matched_on.append("fingerprint")
 
     if same_metric_name:
-        score += 18
+        score += add_score(score_breakdown, "metric_name", 18)
         matched_on.append("metric_name")
 
     if same_host:
-        score += 20
+        score += add_score(score_breakdown, "host", 20)
         matched_on.append("host")
 
     if object_to_instance:
-        score += 14
+        score += add_score(score_breakdown, "object_to_instance", 14)
         matched_on.append("object_to_instance")
 
     time_delta = time_delta_seconds(event.creation_time, candidate.creation_time)
     if time_delta is not None:
         if time_delta <= 300:
-            score += 12
+            score += add_score(score_breakdown, "time<=5m", 12)
             matched_on.append("time<=5m")
         elif time_delta <= 3600:
-            score += 8
+            score += add_score(score_breakdown, "time<=1h", 8)
             matched_on.append("time<=1h")
         elif time_delta <= 10800:
-            score += 5
+            score += add_score(score_breakdown, "time<=3h", 5)
             matched_on.append("time<=3h")
 
     if event.notification_group and event.notification_group == candidate.notification_group:
-        score += 4
+        score += add_score(score_breakdown, "notification_group", 4)
         matched_on.append("notification_group")
 
     if event.severity and event.severity == candidate.severity:
-        score += 3
+        score += add_score(score_breakdown, "severity", 3)
         matched_on.append("severity")
 
     left_signature = message_signature(event.message)
@@ -280,21 +283,21 @@ def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> Candida
     similarity = SequenceMatcher(None, left_signature, right_signature).ratio() if left_signature and right_signature else 0.0
     if left_signature and right_signature:
         if left_signature == right_signature:
-            score += 10
+            score += add_score(score_breakdown, "message_signature", 10)
             matched_on.append("message_signature")
         elif similarity >= 0.9:
-            score += 8
+            score += add_score(score_breakdown, "message_similarity>=0.9", 8)
             matched_on.append("message_similarity>=0.9")
         elif similarity >= 0.75:
-            score += 5
+            score += add_score(score_breakdown, "message_similarity>=0.75", 5)
             matched_on.append("message_similarity>=0.75")
 
     if time_delta is not None and time_delta <= 10800:
         if same_host and left_signature and left_signature == right_signature:
-            score += 18
+            score += add_score(score_breakdown, "message_time_fallback", 18)
             matched_on.append("message_time_fallback")
         elif same_host and same_object_class and similarity >= 0.97:
-            score += 12
+            score += add_score(score_breakdown, "message_time_fallback", 12)
             matched_on.append("message_time_fallback")
 
     confidence = "low"
@@ -308,6 +311,7 @@ def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> Candida
         score=score,
         confidence=confidence,
         matched_on=matched_on,
+        score_breakdown=score_breakdown,
         time_delta_seconds=time_delta,
         message_similarity=similarity,
     )
@@ -365,6 +369,7 @@ def build_matched_record(
         "score": top.score,
         "confidence": top.confidence,
         "matched_on": top.matched_on,
+        "score_breakdown": top.score_breakdown,
         "time_delta_seconds": top.time_delta_seconds,
         "message_similarity": round(top.message_similarity, 3),
         "severity_alignment": "critical" if top.event.severity == "CRITICAL" else "noncritical",
@@ -451,3 +456,8 @@ def merge_candidates(
     for candidate in right:
         merged[candidate.event_id] = candidate
     return list(merged.values())
+
+
+def add_score(score_breakdown: dict[str, int], key: str, value: int) -> int:
+    score_breakdown[key] = score_breakdown.get(key, 0) + value
+    return value

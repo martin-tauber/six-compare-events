@@ -100,6 +100,7 @@ class ReportingTests(unittest.TestCase):
             stats_path = Path(temp_dir) / "statistics.html"
             current_snapshot = {
                 "run_timestamp": "2026-04-24T11:37:58Z",
+                "dataset": {"fingerprint": "dataset-1234abcd"},
                 "truesight": {
                     "analyzed_event_count": 12,
                     "critical_event_count": 10,
@@ -123,7 +124,7 @@ class ReportingTests(unittest.TestCase):
                 },
             }
             history = [
-                {**current_snapshot, "run_timestamp": "2026-04-23T11:37:58Z", "coverage": {"pairing_pct": 70.0, "overall_pct": 40.0, "critical_pct": 50.0}},
+                {**current_snapshot, "run_timestamp": "2026-04-23T11:37:58Z", "dataset": {"fingerprint": "dataset-5678efgh"}, "coverage": {"pairing_pct": 70.0, "overall_pct": 40.0, "critical_pct": 50.0}},
                 current_snapshot,
             ]
             write_statistics_report(stats_path, current_snapshot=current_snapshot, history=history)
@@ -186,3 +187,5 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Average overall coverage", stats_html)
         self.assertIn("Mismatches to check", stats_html)
         self.assertIn("50.00%", stats_html)
+        self.assertIn("Current dataset", stats_html)
+        self.assertIn("dataset-1234abcd", stats_html)

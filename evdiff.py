@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     run_timestamp = datetime.now(UTC)
+    dataset_info = build_dataset_info(Path(args.truesight), Path(args.bhom))
 
     truesight = load_truesight_events(args.truesight)
     bhom = load_bhom_events(args.bhom)
@@ -55,7 +57,12 @@ def main() -> None:
         "bhom_to_truesight": bhom_to_truesight["summary"],
         "issues": truesight.issues + bhom.issues,
     }
-    stats_snapshot = build_stats_snapshot(summary, truesight_to_bhom=truesight_to_bhom, run_timestamp=run_timestamp)
+    stats_snapshot = build_stats_snapshot(
+        summary,
+        truesight_to_bhom=truesight_to_bhom,
+        dataset_info=dataset_info,
+        run_timestamp=run_timestamp,
+    )
 
     write_json(output_dir / "summary.json", summary)
     write_json(output_dir / "matched_critical_events.json", truesight_to_bhom["matched"])
@@ -252,6 +259,7 @@ def build_stats_snapshot(
     summary: dict[str, object],
     *,
     truesight_to_bhom: dict[str, object],
+    dataset_info: dict[str, object],
     run_timestamp: datetime,
 ) -> dict[str, object]:
     truesight = dict(summary["truesight"])
@@ -263,6 +271,7 @@ def build_stats_snapshot(
 
     return {
         "run_timestamp": format_timestamp(run_timestamp),
+        "dataset": dataset_info,
         "truesight": {
             "analyzed_event_count": truesight.get("analyzed_event_count"),
             "start_time": truesight.get("start_time", ""),
@@ -312,11 +321,10 @@ def calculate_overall_coverage(truesight_to_bhom: dict[str, object]) -> dict[str
 
 def write_stats_snapshot(stats_dir: Path, snapshot: dict[str, object]) -> None:
     stats_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = str(snapshot["run_timestamp"]).replace("-", "").replace(":", "").replace("Z", "Z").replace("+00:00", "Z")
-    filename_timestamp = timestamp.replace("T", "_")
+    dataset_fingerprint = str(dict(snapshot.get("dataset", {})).get("fingerprint") or "unknown")
     write_json(stats_dir / "latest.json", snapshot)
-    write_json(stats_dir / f"stats_{filename_timestamp}.json", snapshot)
-    append_jsonl(stats_dir / "history.jsonl", snapshot)
+    write_json(stats_dir / f"stats_{dataset_fingerprint}.json", snapshot)
+    write_history_jsonl(stats_dir / "history.jsonl", snapshot)
 
 
 def load_stats_history(path: Path) -> list[dict[str, object]]:
@@ -327,6 +335,52 @@ def load_stats_history(path: Path) -> list[dict[str, object]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def build_dataset_info(truesight_path: Path, bhom_path: Path) -> dict[str, object]:
+    truesight_info = fingerprint_file(truesight_path)
+    bhom_info = fingerprint_file(bhom_path)
+    digest = hashlib.sha256()
+    digest.update(b"truesight:")
+    digest.update(str(truesight_info["fingerprint"]).encode("utf-8"))
+    digest.update(b"|bhom:")
+    digest.update(str(bhom_info["fingerprint"]).encode("utf-8"))
+    return {
+        "fingerprint": digest.hexdigest()[:16],
+        "truesight": truesight_info,
+        "bhom": bhom_info,
+    }
+
+
+def fingerprint_file(path: Path) -> dict[str, object]:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path),
+        "name": path.name,
+        "fingerprint": digest.hexdigest()[:16],
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def write_history_jsonl(path: Path, snapshot: dict[str, object]) -> None:
+    history = load_stats_history(path)
+    dataset_fingerprint = str(dict(snapshot.get("dataset", {})).get("fingerprint") or "")
+    replaced = False
+    for index, item in enumerate(history):
+        item_fingerprint = str(dict(item.get("dataset", {})).get("fingerprint") or "")
+        if dataset_fingerprint and item_fingerprint == dataset_fingerprint:
+            history[index] = snapshot
+            replaced = True
+            break
+    if not replaced:
+        history.append(snapshot)
+    path.write_text(
+        "".join(json.dumps(item, sort_keys=True) + "\n" for item in history),
+        encoding="utf-8",
+    )
 
 
 def write_csv(

@@ -1182,6 +1182,7 @@ def render_statistics_html(*, current_snapshot: dict[str, Any], history: list[di
     current_ts = current_snapshot.get("truesight_to_bhom", {})
     current_bhom = current_snapshot.get("bhom_to_truesight", {})
     recent_runs = list(reversed(history[-10:]))
+    current_dataset = dict(current_snapshot.get("dataset", {}))
 
     def percent(value: float) -> str:
         return f"{value:.2f}%"
@@ -1199,10 +1200,11 @@ def render_statistics_html(*, current_snapshot: dict[str, Any], history: list[di
     rows_html = "\n".join(
         f"""
           <tr>
-            <td>{escape(format_header_timestamp(value_from(run, ("run_timestamp",), "")))}</td>
-            <td>{escape(value_from(run, ("truesight", "analyzed_event_count")))}</td>
-            <td>{escape(value_from(run, ("bhom", "analyzed_event_count")))}</td>
-            <td>{escape(value_from(run, ("truesight_to_bhom", "matched_count")))}</td>
+             <td>{escape(format_header_timestamp(value_from(run, ("run_timestamp",), "")))}</td>
+             <td><code>{escape(value_from(run, ("dataset", "fingerprint"), "-"))}</code></td>
+             <td>{escape(value_from(run, ("truesight", "analyzed_event_count")))}</td>
+             <td>{escape(value_from(run, ("bhom", "analyzed_event_count")))}</td>
+             <td>{escape(value_from(run, ("truesight_to_bhom", "matched_count")))}</td>
             <td>{escape(value_from(run, ("truesight_to_bhom", "ambiguous_count")))}</td>
             <td>{escape(value_from(run, ("truesight_to_bhom", "unmatched_count")))}</td>
             <td>{escape(percent(float(value_from(run, ("coverage", "pairing_pct"), "0"))))}</td>
@@ -1348,6 +1350,7 @@ def render_statistics_html(*, current_snapshot: dict[str, Any], history: list[di
       <div class="grid">
         <div class="mini"><strong>First run</strong><br><span class="subtle">{escape(format_header_timestamp(first_run))}</span></div>
         <div class="mini"><strong>Latest run</strong><br><span class="subtle">{escape(format_header_timestamp(last_run))}</span></div>
+        <div class="mini"><strong>Current dataset</strong><br><span class="subtle"><code>{escape(str(current_dataset.get("fingerprint", "-") or "-"))}</code></span></div>
       </div>
     </section>
 
@@ -1386,6 +1389,7 @@ def render_statistics_html(*, current_snapshot: dict[str, Any], history: list[di
         <thead>
           <tr>
             <th>Run</th>
+            <th>Dataset</th>
             <th>Truesight events</th>
             <th>BHOM events</th>
             <th>Matched</th>

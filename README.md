@@ -58,8 +58,8 @@ Main files written to `output/`:
 Statistics snapshots are also written to `stats/`:
 
 - `latest.json` - most recent run
-- `history.jsonl` - one JSON record per run
-- `stats_YYYYMMDD_HHMMSSZ.json` - timestamped snapshot of a run
+- `history.jsonl` - one JSON record per unique input dataset fingerprint
+- `stats_<dataset_fingerprint>.json` - snapshot for a specific input dataset, overwritten when the same inputs are run again
 
 Open the browser report directly in your browser:
 

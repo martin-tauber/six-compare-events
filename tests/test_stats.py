@@ -62,11 +62,22 @@ class StatsTests(unittest.TestCase):
                 },
             ],
         }
+        dataset_info = {
+            "fingerprint": "dataset-1234abcd",
+            "truesight": {"name": "truesight.baroc", "fingerprint": "ts-aaaa", "size_bytes": 123},
+            "bhom": {"name": "bhom.json", "fingerprint": "bh-bbbb", "size_bytes": 456},
+        }
         run_timestamp = datetime(2026, 4, 24, 11, 0, 0, tzinfo=UTC)
 
-        snapshot = build_stats_snapshot(summary, truesight_to_bhom=truesight_to_bhom, run_timestamp=run_timestamp)
+        snapshot = build_stats_snapshot(
+            summary,
+            truesight_to_bhom=truesight_to_bhom,
+            dataset_info=dataset_info,
+            run_timestamp=run_timestamp,
+        )
 
         self.assertEqual("2026-04-24T11:00:00Z", snapshot["run_timestamp"])
+        self.assertEqual("dataset-1234abcd", snapshot["dataset"]["fingerprint"])
         self.assertEqual(12, snapshot["truesight"]["analyzed_event_count"])
         self.assertEqual(20, snapshot["bhom"]["analyzed_event_count"])
         self.assertEqual(1, snapshot["issue_count"])
@@ -81,11 +92,17 @@ class StatsTests(unittest.TestCase):
             latest = json.loads((stats_dir / "latest.json").read_text())
             history_lines = (stats_dir / "history.jsonl").read_text().strip().splitlines()
             snapshots = list(stats_dir.glob("stats_*.json"))
+            updated_snapshot = dict(snapshot)
+            updated_snapshot["run_timestamp"] = "2026-04-24T12:00:00Z"
+            write_stats_snapshot(stats_dir, updated_snapshot)
+            updated_history_lines = (stats_dir / "history.jsonl").read_text().strip().splitlines()
 
         self.assertEqual(snapshot, latest)
         self.assertEqual(1, len(history_lines))
         self.assertEqual(snapshot["run_timestamp"], json.loads(history_lines[0])["run_timestamp"])
         self.assertEqual(1, len(snapshots))
+        self.assertEqual(1, len(updated_history_lines))
+        self.assertEqual("2026-04-24T12:00:00Z", json.loads(updated_history_lines[0])["run_timestamp"])
 
 
 if __name__ == "__main__":

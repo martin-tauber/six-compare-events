@@ -110,7 +110,7 @@ Matching uses a weighted score based on signals such as object class, object, in
 ## Notes
 
 - Truesight input should be BAROC.
-- BHOM input is expected as the exported JSON dump currently used in this project.
+- BHOM input can be either the wrapped export JSON used in this project or line-delimited JSON (`.jsonl`) with one event or hit document per line.
 - For notification comparison, Truesight notification type is derived from `alarm_type`, `resp_type`, and `with_ars`, then compared to BHOM `six_notification_type`.
 - `output/`, `input/`, and `stats/` are ignored by Git in this repository.
 

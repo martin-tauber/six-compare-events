@@ -75,10 +75,10 @@ class ReportingTests(unittest.TestCase):
                 {
                     "truesight_event": {"source": "truesight", "event_id": "ts-3", "object_class": "A", "object_name": "obj3", "host": "host3", "severity": "CRITICAL", "creation_time": "t5", "notification_group": "4005", "message": "msg3"},
                     "top_candidates": [
-                        {"event": {"event_id": "bh-3a", "severity": "CRITICAL", "notification_group": "4005"}, "score": 91},
-                        {"event": {"event_id": "bh-3b", "severity": "WARNING", "notification_group": "4999"}, "score": 90},
+                        {"event": {"event_id": "bh-3a", "severity": "CRITICAL", "notification_group": "4005"}, "score": 91, "matched_on": ["host", "message_similarity"], "message_similarity": 0.922, "time_delta_seconds": 180},
+                        {"event": {"event_id": "bh-3b", "severity": "WARNING", "notification_group": "4999"}, "score": 90, "matched_on": ["host", "message_similarity"], "message_similarity": 0.915, "time_delta_seconds": 240},
                     ],
-                    "reason": "Multiple candidates have similarly strong scores.",
+                    "reason": "Top candidates remain too close to choose safely. bh-3a: score 91, message similarity 0.922, time delta 180s, matched on [host, message_similarity]. bh-3b: score 90, message similarity 0.915, time delta 240s, matched on [host, message_similarity]. Shared signals: host, message_similarity.",
                 }
             ],
             "unmatched": [],
@@ -169,6 +169,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("bh-1", html)
         self.assertIn("bh-3a", html)
         self.assertIn("bh-3b", html)
+        self.assertIn("Shared signals: host, message_similarity.", html)
         self.assertIn("Severity mismatch", html)
         self.assertIn("Responsibility mismatch", html)
         self.assertIn("Notification mismatch", html)

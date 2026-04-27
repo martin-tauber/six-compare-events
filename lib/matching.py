@@ -65,7 +65,7 @@ def analyze_critical_events(
     candidate_event_key = f"{candidate_label}_event"
 
     for event in sorted(primary_critical, key=sort_key):
-        candidates = match_event_against_pool(event, candidate_materialized, indexes)
+        candidates = match_event_against_pool(event, indexes)
         if not candidates:
             unmatched.append(build_unmatched_record(event, primary_event_key, "No candidate found with overlapping key fields."))
             continue
@@ -82,7 +82,7 @@ def analyze_critical_events(
                 {
                     primary_event_key: event.as_dict(),
                     "top_candidates": [candidate.as_dict() for candidate in candidates[:3]],
-                    "reason": "Multiple candidates have similarly strong scores.",
+                    "reason": build_ambiguity_reason(top, second),
                 }
             )
             continue
@@ -123,32 +123,22 @@ def analyze_critical_events(
 
 def build_indexes(events: list[CanonicalEvent]) -> dict[str, dict[tuple[str, ...], list[CanonicalEvent]]]:
     indexes: dict[str, dict[tuple[str, ...], list[CanonicalEvent]]] = {
-        "class_object_host": defaultdict(list),
-        "class_instance_host": defaultdict(list),
-        "class_object": defaultdict(list),
-        "object_host": defaultdict(list),
-        "class_host": defaultdict(list),
-        "object": defaultdict(list),
-        "msg_ident_host": defaultdict(list),
+        "full_identity": defaultdict(list),
         "fingerprint": defaultdict(list),
+        "host": defaultdict(list),
     }
 
     for event in events:
-        object_class = normalize_text(event.object_class)
-        object_name = normalize_text(event.object_name)
-        instance_name = normalize_text(event.instance_name)
-        msg_ident = normalize_text(event.msg_ident)
         host = normalize_host(event.host)
         fingerprint = normalize_text(event.fingerprint)
+        identity = build_identity_key(event)
 
-        indexes["class_object_host"][(object_class, object_name, host)].append(event)
-        indexes["class_instance_host"][(object_class, instance_name, host)].append(event)
-        indexes["class_object"][(object_class, object_name)].append(event)
-        indexes["object_host"][(object_name, host)].append(event)
-        indexes["class_host"][(object_class, host)].append(event)
-        indexes["object"][(object_name,)].append(event)
-        indexes["msg_ident_host"][(msg_ident, host)].append(event)
-        indexes["fingerprint"][(fingerprint,)].append(event)
+        if all(identity):
+            indexes["full_identity"][identity].append(event)
+        if fingerprint:
+            indexes["fingerprint"][(fingerprint,)].append(event)
+        if host:
+            indexes["host"][(host,)].append(event)
 
     return indexes
 
@@ -157,29 +147,16 @@ def collect_candidates(
     event: CanonicalEvent,
     indexes: dict[str, dict[tuple[str, ...], list[CanonicalEvent]]],
 ) -> list[CanonicalEvent]:
-    object_class = normalize_text(event.object_class)
-    object_name = normalize_text(event.object_name)
-    instance_name = normalize_text(event.instance_name)
-    msg_ident = normalize_text(event.msg_ident)
-    host = normalize_host(event.host)
-    fingerprint = normalize_text(event.fingerprint)
-
     candidate_map: dict[str, CanonicalEvent] = {}
-    keys = [
-        ("fingerprint", (fingerprint,)),
-        ("class_object_host", (object_class, object_name, host)),
-        ("class_instance_host", (object_class, instance_name, host)),
-        ("class_object", (object_class, object_name)),
-        ("object_host", (object_name, host)),
-        ("class_host", (object_class, host)),
-        ("object", (object_name,)),
-        ("msg_ident_host", (msg_ident, host)),
-    ]
+    fingerprint = normalize_text(event.fingerprint)
+    identity = build_identity_key(event)
 
-    for index_name, key in keys:
-        if not all(key):
-            continue
-        for candidate in indexes[index_name].get(key, []):
+    if fingerprint:
+        for candidate in indexes["fingerprint"].get((fingerprint,), []):
+            candidate_map[candidate.event_id] = candidate
+
+    if all(identity):
+        for candidate in indexes["full_identity"].get(identity, []):
             candidate_map[candidate.event_id] = candidate
 
     return list(candidate_map.values())
@@ -200,110 +177,70 @@ def score_candidates(event: CanonicalEvent, candidates: list[CanonicalEvent]) ->
 
 def match_event_against_pool(
     event: CanonicalEvent,
-    candidate_events: list[CanonicalEvent],
     indexes: dict[str, dict[tuple[str, ...], list[CanonicalEvent]]],
 ) -> list[CandidateScore]:
     candidates = collect_candidates(event, indexes)
-    scored_candidates = score_candidates(event, candidates)
-    if not scored_candidates or scored_candidates[0].score < 55:
-        fallback_candidates = collect_message_time_fallback_candidates(event, candidate_events, candidates)
-        if fallback_candidates:
-            candidates = merge_candidates(candidates, fallback_candidates)
-            scored_candidates = score_candidates(event, candidates)
-    return scored_candidates
+    fallback_candidates = collect_message_time_fallback_candidates(event, indexes, candidates)
+    if fallback_candidates:
+        candidates = merge_candidates(candidates, fallback_candidates)
+    return score_candidates(event, candidates)
 
 
 def score_candidate(event: CanonicalEvent, candidate: CanonicalEvent) -> CandidateScore:
     matched_on: list[str] = []
     score = 0
     score_breakdown: dict[str, int] = {}
-    same_object_class = normalize_text(event.object_class) and normalize_text(event.object_class) == normalize_text(candidate.object_class)
-    same_object_name = normalize_text(event.object_name) and normalize_text(event.object_name) == normalize_text(candidate.object_name)
-    same_instance_name = normalize_text(event.instance_name) and normalize_text(event.instance_name) == normalize_text(candidate.instance_name)
-    same_msg_ident = normalize_text(event.msg_ident) and normalize_text(event.msg_ident) == normalize_text(candidate.msg_ident or candidate.object_name)
     same_fingerprint = normalize_text(event.fingerprint) and normalize_text(event.fingerprint) == normalize_text(candidate.fingerprint)
-    same_metric_name = normalize_text(event.metric_name) and normalize_text(event.metric_name) == normalize_text(candidate.metric_name)
     same_host = normalize_host(event.host) and normalize_host(event.host) == normalize_host(candidate.host)
-    object_to_instance = normalize_text(event.object_name) and normalize_text(event.object_name) == normalize_text(candidate.instance_name)
-
-    if same_object_class:
-        score += add_score(score_breakdown, "object_class", 35)
-        matched_on.append("object_class")
-
-    if same_object_name:
-        score += add_score(score_breakdown, "object", 35)
-        matched_on.append("object")
-
-    if same_instance_name:
-        score += add_score(score_breakdown, "instance", 25)
-        matched_on.append("instance")
-
-    if same_msg_ident:
-        score += add_score(score_breakdown, "msg_ident", 22)
-        matched_on.append("msg_ident")
+    identity = build_identity_key(event)
+    same_identity = all(identity) and identity == build_identity_key(candidate)
 
     if same_fingerprint:
-        score += add_score(score_breakdown, "fingerprint", 28)
+        score += add_score(score_breakdown, "fingerprint", 120)
         matched_on.append("fingerprint")
 
-    if same_metric_name:
-        score += add_score(score_breakdown, "metric_name", 18)
-        matched_on.append("metric_name")
+    if same_identity:
+        score += add_score(score_breakdown, "full_identity", 110)
+        matched_on.append("full_identity")
 
     if same_host:
-        score += add_score(score_breakdown, "host", 20)
+        score += add_score(score_breakdown, "host", 25)
         matched_on.append("host")
 
-    if object_to_instance:
-        score += add_score(score_breakdown, "object_to_instance", 14)
-        matched_on.append("object_to_instance")
-
     time_delta = time_delta_seconds(event.creation_time, candidate.creation_time)
-    if time_delta is not None:
+    if time_delta is not None and same_host:
         if time_delta <= 300:
-            score += add_score(score_breakdown, "time<=5m", 12)
+            score += add_score(score_breakdown, "time<=5m", 25)
             matched_on.append("time<=5m")
+        elif time_delta <= 900:
+            score += add_score(score_breakdown, "time<=15m", 20)
+            matched_on.append("time<=15m")
         elif time_delta <= 3600:
-            score += add_score(score_breakdown, "time<=1h", 8)
+            score += add_score(score_breakdown, "time<=1h", 12)
             matched_on.append("time<=1h")
         elif time_delta <= 10800:
-            score += add_score(score_breakdown, "time<=3h", 5)
+            score += add_score(score_breakdown, "time<=3h", 6)
             matched_on.append("time<=3h")
-
-    if event.notification_group and event.notification_group == candidate.notification_group:
-        score += add_score(score_breakdown, "notification_group", 4)
-        matched_on.append("notification_group")
-
-    if event.severity and event.severity == candidate.severity:
-        score += add_score(score_breakdown, "severity", 3)
-        matched_on.append("severity")
 
     left_signature = message_signature(event.message)
     right_signature = message_signature(candidate.message)
     similarity = SequenceMatcher(None, left_signature, right_signature).ratio() if left_signature and right_signature else 0.0
-    if left_signature and right_signature:
+    if same_host and left_signature and right_signature:
         if left_signature == right_signature:
-            score += add_score(score_breakdown, "message_signature", 10)
+            score += add_score(score_breakdown, "message_signature", 45)
             matched_on.append("message_signature")
-        elif similarity >= 0.9:
-            score += add_score(score_breakdown, "message_similarity>=0.9", 8)
-            matched_on.append("message_similarity>=0.9")
-        elif similarity >= 0.75:
-            score += add_score(score_breakdown, "message_similarity>=0.75", 5)
-            matched_on.append("message_similarity>=0.75")
+        elif similarity > 0:
+            score += add_score(score_breakdown, "message_similarity", round(similarity * 45))
+            matched_on.append("message_similarity")
 
-    if time_delta is not None and time_delta <= 10800:
-        if same_host and left_signature and left_signature == right_signature:
-            score += add_score(score_breakdown, "message_time_fallback", 18)
-            matched_on.append("message_time_fallback")
-        elif same_host and same_object_class and similarity >= 0.97:
-            score += add_score(score_breakdown, "message_time_fallback", 12)
-            matched_on.append("message_time_fallback")
+    if same_host and not same_fingerprint and not same_identity:
+        add_score(score_breakdown, "message_time_fallback", 0)
+        matched_on.append("message_time_fallback")
 
     confidence = "low"
-    if score >= 95:
+    if score >= 110:
         confidence = "high"
-    elif score >= 70:
+    elif score >= 75:
         confidence = "medium"
 
     return CandidateScore(
@@ -433,22 +370,41 @@ def is_ambiguous(top: CandidateScore, second: CandidateScore) -> bool:
     return True
 
 
+def build_ambiguity_reason(top: CandidateScore, second: CandidateScore) -> str:
+    top_delta = format_time_delta(top.time_delta_seconds)
+    second_delta = format_time_delta(second.time_delta_seconds)
+    shared_signals = sorted(set(top.matched_on) & set(second.matched_on))
+    signal_text = ", ".join(shared_signals) if shared_signals else "no shared signals recorded"
+    return (
+        "Top candidates remain too close to choose safely. "
+        f"{top.event.event_id}: score {top.score}, message similarity {top.message_similarity:.3f}, "
+        f"time delta {top_delta}, matched on [{', '.join(top.matched_on)}]. "
+        f"{second.event.event_id}: score {second.score}, message similarity {second.message_similarity:.3f}, "
+        f"time delta {second_delta}, matched on [{', '.join(second.matched_on)}]. "
+        f"Shared signals: {signal_text}."
+    )
+
+
+def format_time_delta(value: int | None) -> str:
+    if value is None:
+        return "unknown"
+    return f"{value}s"
+
+
 def collect_message_time_fallback_candidates(
     event: CanonicalEvent,
-    bhom_events: list[CanonicalEvent],
+    indexes: dict[str, dict[tuple[str, ...], list[CanonicalEvent]]],
     existing_candidates: list[CanonicalEvent],
 ) -> list[CanonicalEvent]:
     existing_ids = {candidate.event_id for candidate in existing_candidates}
     left_signature = message_signature(event.message)
-    if not left_signature or event.creation_time is None:
+    event_host = normalize_host(event.host)
+    if not event_host or not left_signature or event.creation_time is None:
         return []
 
     fallback_candidates: list[CanonicalEvent] = []
-    event_host = normalize_host(event.host)
-    event_class = normalize_text(event.object_class)
-    event_notification_group = normalize_text(event.notification_group)
 
-    for candidate in bhom_events:
+    for candidate in indexes["host"].get((event_host,), []):
         if candidate.event_id in existing_ids or candidate.creation_time is None:
             continue
 
@@ -461,24 +417,24 @@ def collect_message_time_fallback_candidates(
             continue
 
         similarity = SequenceMatcher(None, left_signature, right_signature).ratio()
-        same_host = bool(event_host and event_host == normalize_host(candidate.host))
-        same_class = bool(event_class and event_class == normalize_text(candidate.object_class))
-        same_notification_group = bool(
-            event_notification_group and event_notification_group == normalize_text(candidate.notification_group)
-        )
-
-        if same_host and left_signature == right_signature:
-            fallback_candidates.append(candidate)
-            continue
-
-        if same_host and same_class and similarity >= 0.97:
-            fallback_candidates.append(candidate)
-            continue
-
-        if same_class and same_notification_group and left_signature == right_signature and delta <= 3600:
+        if similarity >= 0.55:
             fallback_candidates.append(candidate)
 
     return fallback_candidates
+
+
+def build_identity_key(event: CanonicalEvent) -> tuple[str, str, str, str, str]:
+    return (
+        normalize_host(event.host),
+        normalize_text(event.object_class),
+        normalize_text(event.object_name),
+        normalize_text(event.instance_name),
+        normalized_metric_parameter(event),
+    )
+
+
+def normalized_metric_parameter(event: CanonicalEvent) -> str:
+    return normalize_text(event.metric_name or event.parameter_name)
 
 
 def merge_candidates(

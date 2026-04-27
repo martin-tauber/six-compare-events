@@ -54,19 +54,7 @@ def load_truesight_events(path: str | Path) -> LoadResult:
 
 def load_bhom_events(path: str | Path) -> LoadResult:
     file_path = Path(path)
-    with file_path.open() as handle:
-        payload = json.load(handle)
-
-    responses = payload.get("responses", [])
-    raw_events: list[dict[str, Any]] = []
-    reported_total = 0
-
-    for response in responses:
-        hits = response.get("hits", {})
-        total = hits.get("total", {})
-        if isinstance(total, dict):
-            reported_total += int(total.get("value", 0) or 0)
-        raw_events.extend(hit.get("_source", {}) for hit in hits.get("hits", []))
+    raw_events, parser_name, response_count, reported_total = parse_bhom_payload(file_path.read_text())
 
     issues: list[dict[str, Any]] = []
     if reported_total and reported_total != len(raw_events):
@@ -83,11 +71,87 @@ def load_bhom_events(path: str | Path) -> LoadResult:
     events = [normalize_bhom_event(event) for event in raw_events]
     metadata = {
         "path": str(file_path),
-        "responses": len(responses),
+        "parser": parser_name,
+        "responses": response_count,
         "event_count": len(events),
         "reported_total": reported_total,
     }
     return LoadResult(source="bhom", events=events, issues=issues, metadata=metadata)
+
+
+def parse_bhom_payload(text: str) -> tuple[list[dict[str, Any]], str, int, int]:
+    stripped = text.strip()
+    if not stripped:
+        return [], "empty", 0, 0
+
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        raw_events, response_count, reported_total = parse_bhom_jsonl(text)
+        return raw_events, "jsonl", response_count, reported_total
+
+    raw_events, response_count, reported_total = extract_bhom_raw_events(payload)
+    return raw_events, "json", response_count, reported_total
+
+
+def parse_bhom_jsonl(text: str) -> tuple[list[dict[str, Any]], int, int]:
+    raw_events: list[dict[str, Any]] = []
+    response_count = 0
+    reported_total = 0
+
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        payload = json.loads(stripped)
+        line_events, line_response_count, line_reported_total = extract_bhom_raw_events(payload)
+        raw_events.extend(line_events)
+        response_count += line_response_count
+        reported_total += line_reported_total
+
+    return raw_events, response_count, reported_total
+
+
+def extract_bhom_raw_events(payload: Any) -> tuple[list[dict[str, Any]], int, int]:
+    if isinstance(payload, list):
+        raw_events: list[dict[str, Any]] = []
+        response_count = 0
+        reported_total = 0
+        for entry in payload:
+            entry_events, entry_response_count, entry_reported_total = extract_bhom_raw_events(entry)
+            raw_events.extend(entry_events)
+            response_count += entry_response_count
+            reported_total += entry_reported_total
+        return raw_events, response_count, reported_total
+
+    if not isinstance(payload, dict):
+        raise ValueError("Unsupported BHOM payload: expected a JSON object, array, or JSON Lines input.")
+
+    if "responses" in payload:
+        raw_events: list[dict[str, Any]] = []
+        response_count = 0
+        reported_total = 0
+        for response in payload.get("responses", []):
+            response_events, nested_response_count, nested_reported_total = extract_bhom_raw_events(response)
+            raw_events.extend(response_events)
+            response_count += nested_response_count
+            reported_total += nested_reported_total
+        return raw_events, response_count, reported_total
+
+    if "hits" in payload:
+        hits = payload.get("hits", {})
+        total = hits.get("total", {}) if isinstance(hits, dict) else {}
+        reported_total = 0
+        if isinstance(total, dict):
+            reported_total = int(total.get("value", 0) or 0)
+        line_hits = hits.get("hits", []) if isinstance(hits, dict) else []
+        raw_events = [hit.get("_source", {}) for hit in line_hits if isinstance(hit, dict)]
+        return raw_events, 1, reported_total
+
+    if "_source" in payload and isinstance(payload["_source"], dict):
+        return [payload["_source"]], 0, 0
+
+    return [payload], 0, 0
 
 
 def parse_truesight_loose(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

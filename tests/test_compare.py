@@ -3,13 +3,183 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 
 from lib.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
 from lib.matching import compare_critical_presence
+from lib.models import CanonicalEvent
 
 
 class LoaderTests(unittest.TestCase):
+    def test_fingerprint_match_is_treated_as_definitive(self) -> None:
+        truesight = CanonicalEvent(
+            "truesight",
+            "ts-fingerprint",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TS_CLASS",
+            "ts-object",
+            "ts-instance",
+            "ts-parameter",
+            "ts-metric",
+            "ts-host",
+            "Truesight alert",
+            "",
+            "shared-fingerprint",
+            "",
+            "4005",
+            "",
+            {},
+        )
+        bhom = CanonicalEvent(
+            "bhom",
+            "bh-fingerprint",
+            datetime(2026, 4, 27, 12, 45, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "BH_CLASS",
+            "bh-object",
+            "bh-instance",
+            "bh-parameter",
+            "bh-metric",
+            "bh-host",
+            "Completely different BHOM alert",
+            "",
+            "shared-fingerprint",
+            "",
+            "4999",
+            "",
+            {},
+        )
+
+        result = compare_critical_presence([truesight], [bhom])
+
+        self.assertEqual(1, result["summary"]["matched_count"])
+        self.assertEqual("bh-fingerprint", result["matched"][0]["bhom_event"]["event_id"])
+        self.assertIn("fingerprint", result["matched"][0]["matched_on"])
+        self.assertEqual("high", result["matched"][0]["confidence"])
+
+    def test_full_identity_match_is_treated_as_definitive(self) -> None:
+        truesight = CanonicalEvent(
+            "truesight",
+            "ts-identity",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "BME_LZ_MSG_WATCH",
+            "BME_LZ_MSG_WATCH",
+            "OScoll",
+            "",
+            "swppro1",
+            "Disk alert",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+        )
+        bhom = CanonicalEvent(
+            "bhom",
+            "bh-identity",
+            datetime(2026, 4, 27, 13, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "BME_LZ_MSG_WATCH",
+            "BME_LZ_MSG_WATCH",
+            "",
+            "OScoll",
+            "swppro1.dmz.six-group.net",
+            "Different wording",
+            "",
+            "",
+            "",
+            "4999",
+            "",
+            {},
+        )
+
+        result = compare_critical_presence([truesight], [bhom])
+
+        self.assertEqual(1, result["summary"]["matched_count"])
+        self.assertEqual("bh-identity", result["matched"][0]["bhom_event"]["event_id"])
+        self.assertIn("full_identity", result["matched"][0]["matched_on"])
+        self.assertEqual("high", result["matched"][0]["confidence"])
+
+    def test_host_time_and_message_similarity_drive_fallback_matching(self) -> None:
+        truesight = CanonicalEvent(
+            "truesight",
+            "ts-fallback",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TRUESIGHT_ONLY",
+            "ts-object",
+            "ts-instance",
+            "",
+            "",
+            "shared-host",
+            "MonitorQueue process is not running on node alpha",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+        )
+        better = CanonicalEvent(
+            "bhom",
+            "bh-better",
+            datetime(2026, 4, 27, 12, 4, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "BHOM_ONLY",
+            "bh-object-a",
+            "bh-instance-a",
+            "",
+            "",
+            "shared-host.domain",
+            "MonitorQueue process is not running on node beta",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+        )
+        weaker = CanonicalEvent(
+            "bhom",
+            "bh-weaker",
+            datetime(2026, 4, 27, 12, 50, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "BHOM_ONLY",
+            "bh-object-b",
+            "bh-instance-b",
+            "",
+            "",
+            "shared-host.domain",
+            "Filesystem utilization warning on another service",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+        )
+
+        result = compare_critical_presence([truesight], [better, weaker])
+
+        self.assertEqual(1, result["summary"]["matched_count"])
+        self.assertEqual("bh-better", result["matched"][0]["bhom_event"]["event_id"])
+        self.assertIn("message_time_fallback", result["matched"][0]["matched_on"])
+        self.assertIn("host", result["matched"][0]["matched_on"])
+        self.assertGreater(result["matched"][0]["message_similarity"], 0.7)
+
     def test_baroc_truesight_parser_recovers_multiline_slots(self) -> None:
         text = """PATROL_EV;
 \tevent_handle=58890557;
@@ -100,7 +270,39 @@ END
         self.assertEqual("match", result["matched"][0]["responsibility_alignment"])
         self.assertEqual("match", result["matched"][0]["notification_alignment"])
         self.assertIn("score_breakdown", result["matched"][0])
-        self.assertGreater(result["matched"][0]["score_breakdown"]["object"], 0)
+        self.assertGreater(result["matched"][0]["score_breakdown"]["host"], 0)
+        self.assertGreater(result["matched"][0]["score_breakdown"]["message_signature"], 0)
+
+    def test_bhom_jsonl_raw_events_are_loaded(self) -> None:
+        bhom_payload = """{"creation_time": 1776945829000, "severity": "CRITICAL", "status": "OPEN", "object_class": "TKS_OSCMD", "object": "BME_LZ_MSG_WATCH", "source_hostname": "swppro1.dmz.six-group.net", "_identifier": "bhom-jsonl-1", "six_notification_group": "4005", "msg": "Disk alert"}
+{"creation_time": 1776945830000, "severity": "WARNING", "status": "OPEN", "object_class": "TKS_OSCMD", "object": "BME_LZ_MSG_WATCH", "source_hostname": "swppro1.dmz.six-group.net", "_identifier": "bhom-jsonl-2", "six_notification_group": "4005", "msg": "Disk alert"}"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bhom_path = Path(temp_dir) / "bhom.jsonl"
+            bhom_path.write_text(bhom_payload)
+
+            bhom = load_bhom_events(bhom_path)
+
+        self.assertEqual("jsonl", bhom.metadata["parser"])
+        self.assertEqual(2, bhom.metadata["event_count"])
+        self.assertEqual(["bhom-jsonl-1", "bhom-jsonl-2"], [event.event_id for event in bhom.events])
+
+    def test_bhom_jsonl_hits_lines_report_partial_exports(self) -> None:
+        bhom_payload = """{"hits": {"total": {"value": 3, "relation": "eq"}, "hits": [{"_source": {"creation_time": 1776945829000, "severity": "CRITICAL", "status": "OPEN", "object_class": "TKS_OSCMD", "object": "BME_LZ_MSG_WATCH", "source_hostname": "swppro1.dmz.six-group.net", "_identifier": "bhom-jsonl-hit-1", "six_notification_group": "4005", "msg": "Disk alert"}}]}}
+{"hits": {"total": {"value": 1, "relation": "eq"}, "hits": [{"_source": {"creation_time": 1776945830000, "severity": "WARNING", "status": "OPEN", "object_class": "TKS_OSCMD", "object": "BME_LZ_MSG_WATCH", "source_hostname": "swppro1.dmz.six-group.net", "_identifier": "bhom-jsonl-hit-2", "six_notification_group": "4005", "msg": "Disk alert"}}]}}"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bhom_path = Path(temp_dir) / "bhom.jsonl"
+            bhom_path.write_text(bhom_payload)
+
+            bhom = load_bhom_events(bhom_path)
+
+        self.assertEqual("jsonl", bhom.metadata["parser"])
+        self.assertEqual(2, bhom.metadata["responses"])
+        self.assertEqual(4, bhom.metadata["reported_total"])
+        self.assertEqual("partial_export", bhom.issues[0]["kind"])
+        self.assertEqual(2, bhom.issues[0]["materialized_hits"])
+        self.assertEqual(4, bhom.issues[0]["reported_total"])
 
     def test_truesight_msg_ident_is_extracted_from_message(self) -> None:
         truesight_payload = """PATROL_EV;

@@ -302,6 +302,9 @@ def flatten_filtered_row(row: dict[str, Any]) -> dict[str, Any]:
         "bhom_event_id": "",
         "message": truesight_event["message"],
         "host": truesight_event["host"],
+        "stage": truesight_event.get("stage", ""),
+        "object_class": truesight_event["object_class"],
+        "instance_name": truesight_event.get("instance_name", ""),
         "truesight_severity": truesight_event["severity"],
         "bhom_severity": "",
         "truesight_responsibility": truesight_event["notification_group"],
@@ -847,7 +850,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
           <div id="section-count" class="subtle" style="margin-top:4px;"></div>
         </div>
         <div class="toolbar-actions">
-          <input id="search" type="search" placeholder="Search event id, object, host, message, severity...">
+          <input id="search" type="search" placeholder="Search event id, instance, host, message, severity...">
           <div id="matched-filter" class="toolbar-switch" hidden>
             <button id="matched-filter-all" type="button" class="active">All lines</button>
             <button id="matched-filter-mismatch" type="button">Only mismatches</button>
@@ -966,6 +969,14 @@ def render_browser_html(payload: dict[str, Any]) -> str:
                 "Identifier",
               ],
             }};
+          case "filtered":
+            return {{
+              comparisonColumns: [
+                "Stage",
+                "Object class",
+                "Instance",
+              ],
+            }};
           default:
             return {{
               comparisonColumns: [
@@ -1044,6 +1055,12 @@ def render_browser_html(payload: dict[str, Any]) -> str:
               return [
                 truesightSeverityValue,
                 renderIdentifierStack(row.bhom_severity, "Copy BHOM event ID"),
+              ];
+            case "filtered":
+              return [
+                escapeHtml(row.stage || "-"),
+                escapeHtml(row.object_class || "-"),
+                escapeHtml(row.instance_name || "-"),
               ];
             default:
               return [
@@ -1528,7 +1545,7 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
 
     <section class="panel">
       <h2>1. Event identity mapping</h2>
-      <p>The matcher first normalizes both sources into one shared event model. The strongest identity mapping is built from <code>host</code> + <code>object_class</code> + <code>instance</code> + <code>parameter/metric</code>. In this project, <code>object</code> and <code>instance</code> are treated as the same business field: the canonical field is <code>instance_name</code>.</p>
+      <p>The matcher first normalizes both sources into one shared event model. The strongest identity mapping is built from <code>host</code> + <code>object_class</code> + <code>instance</code> + <code>parameter/metric</code>. The canonical business field exposed by the app is <code>instance_name</code>.</p>
       <table>
         <thead>
           <tr>
@@ -1555,7 +1572,7 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
             <td>Instance</td>
             <td><code>mc_object</code></td>
             <td><code>instancename</code></td>
-            <td>This is the canonical identity field. Legacy output may still expose <code>object_name</code> as an alias of the normalized instance.</td>
+            <td>This is the canonical identity field used by the app.</td>
           </tr>
           <tr>
             <td>Stage</td>

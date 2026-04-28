@@ -89,6 +89,7 @@ class ReportingTests(unittest.TestCase):
                     "truesight_event": {
                         "source": "truesight",
                         "event_id": "ts-filtered",
+                        "stage": "PRODUCTION",
                         "object_class": "A",
                         "object_name": "objf",
                         "instance_name": "objf",
@@ -97,7 +98,6 @@ class ReportingTests(unittest.TestCase):
                         "creation_time": "tf",
                         "notification_group": "4005",
                         "message": "filtered message",
-                        "stage": "PRODUCTION",
                     },
                     "reason": "Excluded by exception rule.",
                 }
@@ -184,7 +184,6 @@ class ReportingTests(unittest.TestCase):
         self.assertNotIn(">BHOM resp<", html)
         self.assertNotIn(">Open<", html)
         self.assertIn(">Message<", html)
-        self.assertNotIn(">Object class<", html)
         self.assertNotIn(">Event<", html)
         self.assertIn("ts-1", html)
         self.assertIn("bh-1", html)
@@ -226,6 +225,11 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Filtered", html)
         self.assertIn("Excluded by exception rule.", html)
         self.assertIn("ts-filtered", html)
+        self.assertIn("Object class", html)
+        self.assertIn("Instance", html)
+        self.assertIn("PRODUCTION", html)
+        self.assertNotIn(">Object<", html)
+        self.assertIn("Search event id, instance, host, message, severity...", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)
         self.assertIn("Mapping documentation", mapping_html)

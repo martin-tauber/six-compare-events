@@ -105,7 +105,7 @@ The browser report includes:
 - warning banners for partial BHOM exports and analysis-window clamping
 - a statistics page with current-run metrics, historical summaries, and dataset fingerprints
 
-Matching uses a weighted score based on signals such as object class, object, instance, host, fingerprint, `msg_ident`, metric name, message similarity, and time proximity.
+Matching uses a weighted score based on signals such as object class, canonical instance, host, fingerprint, parameter/metric, message similarity, and time proximity.
 
 ## Notes
 

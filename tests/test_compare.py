@@ -12,6 +12,54 @@ from lib.models import CanonicalEvent
 
 
 class LoaderTests(unittest.TestCase):
+    def test_truesight_instance_comes_from_mc_object(self) -> None:
+        truesight_payload = """PATROL_EV;
+\tevent_handle='ts-instance';
+\tmc_ueid='ts-instance';
+\tmc_host=swppro1;
+\tmc_object_class=TKS_OSCMD;
+\tmc_object='canonical-instance';
+\tp_instance='legacy-instance';
+\tmc_parameter=OScoll;
+\tmc_incident_time=1776945829;
+\tstatus=OPEN;
+\tseverity=CRITICAL;
+\tmsg='Disk alert';
+END
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            truesight_path = Path(temp_dir) / "truesight.baroc"
+            truesight_path.write_text(truesight_payload)
+
+            truesight = load_truesight_events(truesight_path)
+
+        self.assertEqual("canonical-instance", truesight.events[0].instance_name)
+        self.assertEqual("canonical-instance", truesight.events[0].object_name)
+
+    def test_bhom_instance_comes_from_instancename(self) -> None:
+        bhom_payload = {
+            "creation_time": 1776945829000,
+            "severity": "CRITICAL",
+            "status": "OPEN",
+            "object_class": "TKS_OSCMD",
+            "object": "legacy-object",
+            "instancename": "canonical-instance",
+            "source_hostname": "swppro1.dmz.six-group.net",
+            "_identifier": "bhom-instance",
+            "six_notification_group": "4005",
+            "msg": "Disk alert",
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bhom_path = Path(temp_dir) / "bhom.json"
+            bhom_path.write_text(json.dumps(bhom_payload))
+
+            bhom = load_bhom_events(bhom_path)
+
+        self.assertEqual("canonical-instance", bhom.events[0].instance_name)
+        self.assertEqual("canonical-instance", bhom.events[0].object_name)
+
     def test_fingerprint_match_is_treated_as_definitive(self) -> None:
         truesight = CanonicalEvent(
             "truesight",

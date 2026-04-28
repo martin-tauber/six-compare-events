@@ -283,7 +283,7 @@ def time_delta_seconds(left: datetime | None, right: datetime | None) -> int | N
 
 
 def sort_key(event: CanonicalEvent) -> tuple[str, str, str, str]:
-    return (event.object_class, event.object_name, event.host, event.event_id)
+    return (event.object_class, event.instance_name, event.host, event.event_id)
 
 
 def build_unmatched_record(event: CanonicalEvent, event_key: str, reason: str) -> dict[str, object]:
@@ -423,11 +423,10 @@ def collect_message_time_fallback_candidates(
     return fallback_candidates
 
 
-def build_identity_key(event: CanonicalEvent) -> tuple[str, str, str, str, str]:
+def build_identity_key(event: CanonicalEvent) -> tuple[str, str, str, str]:
     return (
         normalize_host(event.host),
         normalize_text(event.object_class),
-        normalize_text(event.object_name),
         normalize_text(event.instance_name),
         normalized_metric_parameter(event),
     )

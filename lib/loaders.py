@@ -394,10 +394,14 @@ def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
     creation_time = parse_timestamp(raw.get("mc_incident_time") or raw.get("date_reception") or raw.get("date"))
     if creation_time is None and (raw.get("mc_incident_time") or raw.get("date_reception") or raw.get("date")):
         notes.append("unparsed_creation_time")
-    object_name = stringify(raw.get("mc_object") or raw.get("object"))
     message = stringify(raw.get("msg"))
     metric_name = extract_metric_name(message)
-    instance_name = stringify(raw.get("p_instance") or raw.get("instancename")) or extract_instance_hint(message) or object_name
+    instance_name = (
+        stringify(raw.get("mc_object") or raw.get("object"))
+        or stringify(raw.get("p_instance") or raw.get("instancename"))
+        or extract_instance_hint(message)
+    )
+    object_name = instance_name
     parameter_name = stringify(raw.get("mc_parameter") or raw.get("p_parameter")) or extract_parameter_hint(message)
     msg_ident = stringify(raw.get("msg_ident")) or extract_msg_ident(message)
     host = stringify(raw.get("mc_host") or raw.get("six_host") or raw.get("p_node") or raw.get("source_hostname"))
@@ -442,8 +446,8 @@ def normalize_bhom_event(raw: dict[str, Any]) -> CanonicalEvent:
     if creation_time is None and raw.get("creation_time"):
         notes.append("unparsed_creation_time")
 
-    object_name = stringify(raw.get("object"))
-    instance_name = stringify(raw.get("p_instance") or raw.get("instancename") or object_name)
+    instance_name = stringify(raw.get("instancename") or raw.get("p_instance") or raw.get("object"))
+    object_name = instance_name
     parameter_name = stringify(raw.get("p_parameter"))
     metric_name = stringify(raw.get("metric_name") or raw.get("al_parameter_name"))
     notification_type = stringify(raw.get("six_notification_type_tmp") or raw.get("six_notification_type")).upper()

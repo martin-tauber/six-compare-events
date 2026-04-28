@@ -175,7 +175,7 @@ def flatten_matched_row(row: dict[str, Any]) -> dict[str, Any]:
                 truesight_event["event_id"],
                 bhom_event["event_id"],
                 truesight_event["object_class"],
-                truesight_event["object_name"],
+                truesight_event.get("instance_name") or truesight_event.get("object_name", ""),
                 truesight_event["host"],
                 truesight_event["severity"],
                 bhom_event["severity"],
@@ -230,7 +230,7 @@ def flatten_ambiguous_row(row: dict[str, Any]) -> dict[str, Any]:
             [
                 truesight_event["event_id"],
                 truesight_event["object_class"],
-                truesight_event["object_name"],
+                truesight_event.get("instance_name") or truesight_event.get("object_name", ""),
                 truesight_event["host"],
                 truesight_event["message"],
                 " ".join(candidate["event"]["event_id"] for candidate in candidates),
@@ -269,7 +269,7 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
             [
                 truesight_event["event_id"],
                 truesight_event["object_class"],
-                truesight_event["object_name"],
+                truesight_event.get("instance_name") or truesight_event.get("object_name", ""),
                 truesight_event["host"],
                 truesight_event["message"],
                 row["reason"],
@@ -1262,7 +1262,6 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
       <p>Before matching, both sources are normalized into a shared internal model. The most important fields are:</p>
       <ul>
         <li><code>object_class</code></li>
-        <li><code>object</code> / <code>object_name</code></li>
         <li><code>instance_name</code></li>
         <li><code>parameter_name</code></li>
         <li><code>metric_name</code></li>
@@ -1274,7 +1273,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>notification_group</code></li>
         <li><code>severity</code></li>
       </ul>
-      <p>For Truesight, the BAROC export is used directly, so slots like <code>p_instance</code>, <code>mc_parameter</code>, <code>msg_ident</code>, <code>resp</code>, and <code>resp_type</code> are read from the source instead of reconstructed from JSON. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>. The shared <code>notification_type</code> field compares BHOM <code>six_notification_type</code> with the expected Truesight notification type derived from <code>alarm_type</code>, <code>resp_type</code>, and <code>with_ars</code>.</p>
+      <p>For Truesight, the canonical <code>instance_name</code> comes from <code>mc_object</code>. For BHOM, the canonical <code>instance_name</code> comes from <code>instancename</code>. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>. The shared <code>notification_type</code> field compares BHOM <code>six_notification_type</code> with the expected Truesight notification type derived from <code>alarm_type</code>, <code>resp_type</code>, and <code>with_ars</code>.</p>
     </section>
 
     <section class="panel">
@@ -1282,68 +1281,49 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
       <p>The matcher first builds a candidate set from stronger identity keys. BHOM candidates are collected when one or more of these keys overlap:</p>
       <ol>
         <li><code>fingerprint</code></li>
-        <li><code>object_class + object + host</code></li>
-        <li><code>object_class + instance + host</code></li>
-        <li><code>object_class + object</code></li>
-        <li><code>object + host</code></li>
-        <li><code>object_class + host</code></li>
-        <li><code>object</code> only</li>
-        <li><code>msg_ident + host</code></li>
+        <li><code>host + object_class + instance_name + parameter/metric</code></li>
       </ol>
-      <p>If these key-based lookups do not produce a strong enough candidate, the matcher performs a conservative fallback search using <strong>message similarity + creation time</strong>.</p>
+      <p>If identity keys do not produce a unique match, the matcher performs a conservative fallback search on the same host using <strong>message similarity + creation time</strong>.</p>
     </section>
 
     <section class="panel">
       <h2>3. Scoring</h2>
       <p>Each candidate receives a score. Stronger identity signals contribute more than weaker contextual signals.</p>
       <ul>
-        <li><strong>High-weight identity signals:</strong> object class, object, instance, fingerprint, msg_ident</li>
-        <li><strong>Context signals:</strong> host, metric name, notification group</li>
+        <li><strong>Deterministic identity signals:</strong> fingerprint, or host + object class + instance + parameter/metric</li>
+        <li><strong>Context signals:</strong> host</li>
         <li><strong>Time signals:</strong> creation times closer together score higher</li>
-        <li><strong>Message signals:</strong> exact normalized message signature or high similarity</li>
+        <li><strong>Message signals:</strong> exact normalized message signature or scaled similarity</li>
       </ul>
-      <p>A candidate becomes a direct match only if its score clears the minimum threshold and there is no near-tie with another candidate.</p>
+      <p>A candidate becomes a direct match only if it clears the minimum threshold and there is no near-tie with another candidate.</p>
     </section>
 
     <section class="panel">
       <h2>3a. Current score weights and thresholds</h2>
       <p>The current implementation uses these point values:</p>
       <ul>
-        <li><code>object_class</code> match: <strong>+35</strong></li>
-        <li><code>object</code> match: <strong>+35</strong></li>
-        <li><code>fingerprint</code> match: <strong>+28</strong></li>
-        <li><code>instance</code> match: <strong>+25</strong></li>
-        <li><code>msg_ident</code> match: <strong>+22</strong></li>
-        <li><code>host</code> match: <strong>+20</strong></li>
-        <li><code>metric_name</code> match: <strong>+18</strong></li>
-        <li><code>message_time_fallback</code>: <strong>+18</strong> or <strong>+12</strong></li>
-        <li><code>object_to_instance</code>: <strong>+14</strong></li>
-        <li>time delta <code>&lt;= 5 min</code>: <strong>+12</strong></li>
-        <li>exact normalized message signature: <strong>+10</strong></li>
-        <li>time delta <code>&lt;= 1 hour</code>: <strong>+8</strong></li>
-        <li>message similarity <code>&gt;= 0.9</code>: <strong>+8</strong></li>
-        <li>time delta <code>&lt;= 3 hours</code>: <strong>+5</strong></li>
-        <li>message similarity <code>&gt;= 0.75</code>: <strong>+5</strong></li>
-        <li><code>notification_group</code> match: <strong>+4</strong></li>
-        <li><code>severity</code> match: <strong>+3</strong></li>
+        <li><code>fingerprint</code> match: <strong>+120</strong></li>
+        <li><code>full_identity</code> match: <strong>+110</strong></li>
+        <li><code>host</code> match: <strong>+25</strong></li>
+        <li>time delta <code>&lt;= 5 min</code>: <strong>+25</strong></li>
+        <li>time delta <code>&lt;= 15 min</code>: <strong>+20</strong></li>
+        <li>exact normalized message signature: <strong>+45</strong></li>
+        <li><code>message_similarity</code>: <strong>scaled up to +45</strong></li>
+        <li>time delta <code>&lt;= 1 hour</code>: <strong>+12</strong></li>
+        <li>time delta <code>&lt;= 3 hours</code>: <strong>+6</strong></li>
       </ul>
       <p>Confidence labels are assigned after the total score is calculated:</p>
       <ul>
-        <li><strong>high</strong>: score <code>&gt;= 95</code></li>
-        <li><strong>medium</strong>: score <code>&gt;= 70</code></li>
-        <li><strong>low</strong>: score below <code>70</code></li>
+        <li><strong>high</strong>: score <code>&gt;= 110</code></li>
+        <li><strong>medium</strong>: score <code>&gt;= 75</code></li>
+        <li><strong>low</strong>: score below <code>75</code></li>
       </ul>
       <p>A candidate becomes a direct match only if the best candidate reaches at least <code>55</code> points.</p>
     </section>
 
     <section class="panel">
       <h2>4. Time and message fallback</h2>
-      <p>When key-based matching is weak or missing, the matcher can still propose candidates if:</p>
-      <ul>
-        <li>the message signatures are identical and the host matches, or</li>
-        <li>the host and object class match and the message similarity is very high,</li>
-      </ul>
-      <p>and the creation times are within a limited time window.</p>
+      <p>When identity-based matching is missing, the matcher can still propose candidates on the same host if the message is similar enough and the creation times are within a limited time window.</p>
       <p>This fallback is also used to break ties between repeated BHOM events: if two candidates are otherwise very similar, the one that is materially closer in time is preferred.</p>
     </section>
 
@@ -1373,7 +1353,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
       <h2>6. Important limitations</h2>
       <ul>
         <li>The BHOM file used here is a partial sample, so “unmatched” does not always mean “missing in BHOM.”</li>
-        <li><code>msg_ident</code> and <code>fingerprint</code> are both used, but the current logic does <strong>not</strong> directly compare Truesight <code>msg_ident</code> to BHOM <code>six_fingerprint</code> as a dedicated rule.</li>
+        <li>If BHOM does not populate <code>instancename</code>, the canonical instance falls back to other BHOM fields and may be weaker.</li>
         <li>Repeated or deduplicated BHOM events can still create ambiguous cases.</li>
       </ul>
     </section>
@@ -1482,7 +1462,7 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
 
     <section class="panel">
       <h2>1. Event identity mapping</h2>
-      <p>The matcher first normalizes both sources into one shared event model. The strongest identity mapping is built from the Truesight quadruple <code>object</code> + <code>object_class</code> + <code>instance</code> + <code>parameter</code>, with BHOM using the equivalent normalized Helix fields.</p>
+      <p>The matcher first normalizes both sources into one shared event model. The strongest identity mapping is built from <code>host</code> + <code>object_class</code> + <code>instance</code> + <code>parameter/metric</code>. In this project, <code>object</code> and <code>instance</code> are treated as the same business field: the canonical field is <code>instance_name</code>.</p>
       <table>
         <thead>
           <tr>
@@ -1506,16 +1486,10 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
             <td>One of the highest-weight identity signals.</td>
           </tr>
           <tr>
-            <td>Object</td>
-            <td><code>mc_object</code></td>
-            <td><code>object</code></td>
-            <td>One of the highest-weight identity signals.</td>
-          </tr>
-          <tr>
             <td>Instance</td>
-            <td><code>p_instance</code></td>
-            <td><code>p_instance</code> / <code>instancename</code></td>
-            <td>Falls back to object name when the source does not expose a separate instance.</td>
+            <td><code>mc_object</code></td>
+            <td><code>instancename</code></td>
+            <td>This is the canonical identity field. Legacy output may still expose <code>object_name</code> as an alias of the normalized instance.</td>
           </tr>
           <tr>
             <td>Parameter / metric</td>

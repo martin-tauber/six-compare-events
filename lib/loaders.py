@@ -11,14 +11,24 @@ from .models import CanonicalEvent, LoadResult
 
 def load_truesight_events(path: str | Path) -> LoadResult:
     file_path = Path(path)
-    text = file_path.read_text()
+    text, encoding = read_text_with_fallback(file_path)
     issues: list[dict[str, Any]]
 
     if file_path.suffix.lower() == ".baroc":
         raw_events, issues = parse_truesight_baroc(text)
+        if encoding != "utf-8":
+            issues.append(
+                {
+                    "source": "truesight",
+                    "kind": "non_utf8_input",
+                    "message": f"Decoded input with fallback encoding {encoding}.",
+                    "encoding": encoding,
+                }
+            )
         metadata = {
             "path": str(file_path),
             "parser": "baroc",
+            "encoding": encoding,
             "event_count": len(raw_events),
         }
     else:
@@ -28,6 +38,7 @@ def load_truesight_events(path: str | Path) -> LoadResult:
             metadata = {
                 "path": str(file_path),
                 "parser": "json",
+                "encoding": encoding,
                 "event_count": len(raw_events),
             }
         except json.JSONDecodeError as exc:
@@ -45,11 +56,23 @@ def load_truesight_events(path: str | Path) -> LoadResult:
             metadata = {
                 "path": str(file_path),
                 "parser": "line_recovery",
+                "encoding": encoding,
                 "event_count": len(raw_events),
             }
 
     events = [normalize_truesight_event(event) for event in raw_events]
     return LoadResult(source="truesight", events=events, issues=issues, metadata=metadata)
+
+
+def read_text_with_fallback(path: Path) -> tuple[str, str]:
+    payload = path.read_bytes()
+    try:
+        return payload.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        try:
+            return payload.decode("cp1252"), "cp1252"
+        except UnicodeDecodeError:
+            return payload.decode("latin-1"), "latin-1"
 
 
 def load_bhom_events(path: str | Path) -> LoadResult:

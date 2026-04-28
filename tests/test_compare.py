@@ -13,6 +13,32 @@ from lib.models import CanonicalEvent
 
 
 class LoaderTests(unittest.TestCase):
+    def test_truesight_loader_falls_back_from_utf8_for_baroc(self) -> None:
+        truesight_payload = (
+            "PATROL_EV;\n"
+            "\tevent_handle='ts-encoding';\n"
+            "\tmc_ueid='ts-encoding';\n"
+            "\tmc_host=swppro1;\n"
+            "\tmc_object_class=TKS_OSCMD;\n"
+            "\tmc_object='canonical-instance';\n"
+            "\tmc_parameter=OScoll;\n"
+            "\tmc_incident_time=1776945829;\n"
+            "\tstatus=OPEN;\n"
+            "\tseverity=CRITICAL;\n"
+            "\tmsg='Disk älert';\n"
+            "END\n"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            truesight_path = Path(temp_dir) / "truesight.baroc"
+            truesight_path.write_bytes(truesight_payload.encode("cp1252"))
+
+            truesight = load_truesight_events(truesight_path)
+
+        self.assertEqual("cp1252", truesight.metadata["encoding"])
+        self.assertEqual("Disk älert", truesight.events[0].message)
+        self.assertEqual("non_utf8_input", truesight.issues[0]["kind"])
+
     def test_truesight_stage_comes_from_prod_category(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-stage';

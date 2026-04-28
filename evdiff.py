@@ -9,7 +9,9 @@ from pathlib import Path
 
 from lib import (
     analyze_critical_events,
+    apply_exception_rules,
     load_bhom_events,
+    load_exception_rules,
     load_truesight_events,
     write_browser_report,
     write_mapping_documentation,
@@ -25,6 +27,10 @@ def main() -> None:
     parser.add_argument("--truesight", required=True, help="Path to the Truesight BAROC dump")
     parser.add_argument("--bhom", required=True, help="Path to the BHOM dump")
     parser.add_argument(
+        "--exceptions",
+        help="Optional CSV file with regex-based Truesight exception rules",
+    )
+    parser.add_argument(
         "--output-dir",
         default="output",
         help="Directory where result files should be written",
@@ -36,20 +42,46 @@ def main() -> None:
     )
     args = parser.parse_args()
     run_timestamp = datetime.now(UTC)
-    dataset_info = build_dataset_info(Path(args.truesight), Path(args.bhom))
+    exception_path = Path(args.exceptions) if args.exceptions else None
+    dataset_info = build_dataset_info(Path(args.truesight), Path(args.bhom), exception_path=exception_path)
 
     truesight = load_truesight_events(args.truesight)
     bhom = load_bhom_events(args.bhom)
-    truesight_events, bhom_events, analysis_issues = limit_events_to_shared_timeframe(truesight.events, bhom.events)
+    exception_issues: list[dict[str, object]] = []
+    excluded_events: list[object] = []
+    truesight_events_source = truesight.events
+    if exception_path:
+        exception_rules = load_exception_rules(exception_path)
+        truesight_events_source, excluded_events, exception_issues = apply_exception_rules(
+            truesight.events,
+            exception_rules,
+            path=exception_path,
+        )
+        truesight.metadata["exception_file"] = str(exception_path)
+        truesight.metadata["exception_rule_count"] = len(exception_rules)
+        truesight.metadata["excluded_event_count"] = len(excluded_events)
+        truesight.metadata["excluded_critical_event_count"] = sum(
+            1 for event in excluded_events if event.severity == "CRITICAL"
+        )
+    filtered_truesight_events = [
+        {
+            "truesight_event": event.as_dict(),
+            "reason": "Excluded by exception rule.",
+        }
+        for event in excluded_events
+    ]
+
+    truesight_events, bhom_events, analysis_issues = limit_events_to_shared_timeframe(truesight_events_source, bhom.events)
     truesight_to_bhom = analyze_critical_events(
         primary_events=truesight_events,
         candidate_events=bhom.events,
         primary_label="truesight",
         candidate_label="bhom",
     )
+    truesight_to_bhom["filtered"] = filtered_truesight_events
     bhom_to_truesight = analyze_critical_events(
         primary_events=bhom_events,
-        candidate_events=truesight.events,
+        candidate_events=truesight_events_source,
         primary_label="bhom",
         candidate_label="truesight",
     )
@@ -62,7 +94,7 @@ def main() -> None:
         "bhom": enrich_source_metadata(bhom.metadata, bhom_events),
         "truesight_to_bhom": truesight_to_bhom["summary"],
         "bhom_to_truesight": bhom_to_truesight["summary"],
-        "issues": analysis_issues + truesight.issues + bhom.issues,
+        "issues": analysis_issues + exception_issues + truesight.issues + bhom.issues,
     }
     stats_snapshot = build_stats_snapshot(
         summary,
@@ -77,12 +109,13 @@ def main() -> None:
     write_json(output_dir / "matched_critical_to_noncritical.json", truesight_to_bhom["matched_to_noncritical"])
     write_json(output_dir / "unmatched_critical_events.json", truesight_to_bhom["unmatched"])
     write_json(output_dir / "ambiguous_critical_events.json", truesight_to_bhom["ambiguous"])
+    write_json(output_dir / "filtered_truesight_events.json", truesight_to_bhom["filtered"])
     write_json(output_dir / "bhom_critical_matches.json", bhom_to_truesight["matched"])
     write_json(output_dir / "bhom_critical_to_truesight_critical.json", bhom_to_truesight["matched_to_critical"])
     write_json(output_dir / "bhom_critical_to_truesight_noncritical.json", bhom_to_truesight["matched_to_noncritical"])
     write_json(output_dir / "bhom_critical_unmatched.json", bhom_to_truesight["unmatched"])
     write_json(output_dir / "bhom_critical_ambiguous.json", bhom_to_truesight["ambiguous"])
-    write_json(output_dir / "ingestion_issues.json", analysis_issues + truesight.issues + bhom.issues)
+    write_json(output_dir / "ingestion_issues.json", analysis_issues + exception_issues + truesight.issues + bhom.issues)
     write_browser_report(output_dir / "index.html", summary=summary, truesight_to_bhom=truesight_to_bhom)
     write_mapping_documentation(output_dir / "mapping_documentation.html", summary=summary)
     write_matching_documentation(output_dir / "matching_documentation.html", summary=summary)
@@ -178,6 +211,21 @@ def main() -> None:
         primary_event_key="truesight_event",
     )
     write_csv(
+        output_dir / "filtered_truesight_events.csv",
+        truesight_to_bhom["filtered"],
+        [
+            "truesight_event_id",
+            "object_class",
+            "instance_name",
+            "host",
+            "creation_time",
+            "severity",
+            "notification_group",
+            "reason",
+        ],
+        primary_event_key="truesight_event",
+    )
+    write_csv(
         output_dir / "bhom_critical_to_truesight_noncritical.csv",
         bhom_to_truesight["matched_to_noncritical"],
         [
@@ -232,6 +280,9 @@ def main() -> None:
     for issue in analysis_issues:
         if issue.get("kind") == "analysis_window_limited":
             print(f"Analysis window limited to: {issue['start_time']} - {issue['end_time']}")
+    for issue in exception_issues:
+        if issue.get("kind") == "exception_filtered":
+            print(f"Truesight exceptions filtered: {issue['excluded_count']}")
     print(f"BHOM critical without Truesight critical: {bhom_summary['unmatched_count']}")
     print(f"BHOM critical matched to Truesight non-critical: {bhom_summary['matched_to_noncritical_count']}")
     print(f"Matching documentation: {(output_dir / 'matching_documentation.html').resolve()}")
@@ -400,7 +451,12 @@ def load_stats_history(path: Path) -> list[dict[str, object]]:
     ]
 
 
-def build_dataset_info(truesight_path: Path, bhom_path: Path) -> dict[str, object]:
+def build_dataset_info(
+    truesight_path: Path,
+    bhom_path: Path,
+    *,
+    exception_path: Path | None = None,
+) -> dict[str, object]:
     truesight_info = fingerprint_file(truesight_path)
     bhom_info = fingerprint_file(bhom_path)
     digest = hashlib.sha256()
@@ -408,11 +464,18 @@ def build_dataset_info(truesight_path: Path, bhom_path: Path) -> dict[str, objec
     digest.update(str(truesight_info["fingerprint"]).encode("utf-8"))
     digest.update(b"|bhom:")
     digest.update(str(bhom_info["fingerprint"]).encode("utf-8"))
-    return {
+    dataset_info = {
         "fingerprint": digest.hexdigest()[:16],
         "truesight": truesight_info,
         "bhom": bhom_info,
     }
+    if exception_path is not None:
+        exception_info = fingerprint_file(exception_path)
+        digest.update(b"|exceptions:")
+        digest.update(str(exception_info["fingerprint"]).encode("utf-8"))
+        dataset_info["exceptions"] = exception_info
+        dataset_info["fingerprint"] = digest.hexdigest()[:16]
+    return dataset_info
 
 
 def fingerprint_file(path: Path) -> dict[str, object]:

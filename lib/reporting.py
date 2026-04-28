@@ -78,6 +78,12 @@ def build_issue_notes(issues: list[dict[str, Any]], *, docs_mode: bool = False) 
                 f"Analysis was limited to the shared timeframe {format_header_timestamp(str(issue.get('start_time', '')))} "
                 f"to {format_header_timestamp(str(issue.get('end_time', '')))}."
             )
+        elif issue.get("kind") == "exception_filtered":
+            path_note = f" from {issue.get('path', '')}" if issue.get("path") else ""
+            notes.append(
+                f"Truesight exception rules filtered {issue.get('excluded_count', 0)} events"
+                f" using {issue.get('rule_count', 0)} rule(s){path_note}."
+            )
     return notes
 
 
@@ -140,6 +146,12 @@ def build_browser_payload(
                 "label": "No BHOM candidate",
                 "description": "Truesight critical events with no BHOM candidate in the sample export.",
                 "rows": [flatten_unmatched_row(row) for row in truesight_to_bhom["unmatched"]],
+            },
+            {
+                "id": "filtered",
+                "label": "Filtered",
+                "description": "Truesight events excluded by exception rules before matching.",
+                "rows": [flatten_filtered_row(row) for row in truesight_to_bhom.get("filtered", [])],
             },
         ],
     }
@@ -282,10 +294,51 @@ def flatten_unmatched_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def flatten_filtered_row(row: dict[str, Any]) -> dict[str, Any]:
+    truesight_event = row["truesight_event"]
+    return {
+        "kind": "filtered",
+        "truesight_event_id": truesight_event["event_id"],
+        "bhom_event_id": "",
+        "message": truesight_event["message"],
+        "host": truesight_event["host"],
+        "truesight_severity": truesight_event["severity"],
+        "bhom_severity": "",
+        "truesight_responsibility": truesight_event["notification_group"],
+        "bhom_responsibility": "",
+        "responsibility_alignment": "",
+        "notification_alignment": "",
+        "truesight_creation_time": truesight_event["creation_time"],
+        "bhom_creation_time": "",
+        "notification_group": truesight_event["notification_group"],
+        "confidence": "",
+        "score": "",
+        "matched_on": "",
+        "reason": row["reason"],
+        "search_text": " ".join(
+            [
+                truesight_event["event_id"],
+                truesight_event["object_class"],
+                truesight_event.get("instance_name") or truesight_event.get("object_name", ""),
+                truesight_event.get("stage", ""),
+                truesight_event["host"],
+                truesight_event["message"],
+                row["reason"],
+            ]
+        ).lower(),
+        "details": {
+            "truesight_event": truesight_event,
+            "reason": row["reason"],
+        },
+    }
+
+
 def render_browser_html(payload: dict[str, Any]) -> str:
     data_json = json.dumps(payload, indent=2).replace("</", "<\\/")
     ts_summary = payload["summary"]["truesight_to_bhom"]
     critical_total = ts_summary["critical_events_in_truesight"]
+    excluded_critical_count = int(payload["summary"].get("truesight", {}).get("excluded_critical_event_count", 0) or 0)
+    raw_critical_total = critical_total + excluded_critical_count
     matched_total = ts_summary["matched_count"]
     overall_coverage = coverage_percent(payload["overall_coverage_count"], critical_total)
     severity_alignment_coverage = coverage_percent(
@@ -773,7 +826,8 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         </div>
       </div>
       <div class="cards summary-cards">
-        <div class="card"><div class="label">Truesight critical</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>
+        <div class="card"><div class="label">Truesight critical</div><div class="value">{raw_critical_total}</div><div class="meta">{excluded_critical_count} filtered</div></div>
+        <div class="card"><div class="label">Taken into account</div><div class="value">{ts_summary['critical_events_in_truesight']}</div></div>
         <div class="card"><div class="label">Matched to BHOM</div><div class="value">{ts_summary['matched_count']}</div><div class="meta">{coverage_percent(ts_summary['matched_count'], critical_total)} coverage</div></div>
         <div class="card"><div class="label">Severity mismatch</div><div class="value">{ts_summary['matched_to_noncritical_count']}</div><div class="meta">{severity_alignment_coverage} coverage</div></div>
         <div class="card"><div class="label">Responsibility mismatch</div><div class="value">{payload['responsibility_mismatch_count']}</div><div class="meta">{responsibility_alignment_coverage} coverage</div></div>
@@ -1265,6 +1319,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>instance_name</code></li>
         <li><code>parameter_name</code></li>
         <li><code>metric_name</code></li>
+        <li><code>stage</code></li>
         <li><code>host</code></li>
         <li><code>message</code></li>
         <li><code>msg_ident</code> (Truesight)</li>
@@ -1273,7 +1328,7 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
         <li><code>notification_group</code></li>
         <li><code>severity</code></li>
       </ul>
-      <p>For Truesight, the canonical <code>instance_name</code> comes from <code>mc_object</code>. For BHOM, the canonical <code>instance_name</code> comes from <code>instancename</code>. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>. The shared <code>notification_type</code> field compares BHOM <code>six_notification_type</code> with the expected Truesight notification type derived from <code>alarm_type</code>, <code>resp_type</code>, and <code>with_ars</code>.</p>
+      <p>For Truesight, the canonical <code>instance_name</code> comes from <code>mc_object</code> and the canonical <code>stage</code> comes from <code>prod_category</code>. For BHOM, the canonical <code>instance_name</code> comes from <code>instancename</code>. The shared <code>notification_group</code> field is what the UI shows as responsibility: Truesight <code>resp</code> versus BHOM <code>six_notification_group</code>. The shared <code>notification_type</code> field compares BHOM <code>six_notification_type</code> with the expected Truesight notification type derived from <code>alarm_type</code>, <code>resp_type</code>, and <code>with_ars</code>.</p>
     </section>
 
     <section class="panel">
@@ -1350,7 +1405,18 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
     </section>
 
     <section class="panel">
-      <h2>6. Important limitations</h2>
+      <h2>6. Exception rules</h2>
+      <p>An optional exception CSV can exclude Truesight events before timeframe limiting and before matching. These excluded events are treated as out of scope for the run.</p>
+      <ul>
+        <li>Expected headers: <code>stage</code>, <code>host</code>, <code>object class</code>, <code>instance</code>, <code>parameter</code>, <code>msg</code></li>
+        <li>Each populated cell is interpreted as a regular expression.</li>
+        <li>Blank cells behave like wildcards.</li>
+        <li>Rules apply only to Truesight events.</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>7. Important limitations</h2>
       <ul>
         <li>The BHOM file used here is a partial sample, so “unmatched” does not always mean “missing in BHOM.”</li>
         <li>If BHOM does not populate <code>instancename</code>, the canonical instance falls back to other BHOM fields and may be weaker.</li>
@@ -1490,6 +1556,12 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
             <td><code>mc_object</code></td>
             <td><code>instancename</code></td>
             <td>This is the canonical identity field. Legacy output may still expose <code>object_name</code> as an alias of the normalized instance.</td>
+          </tr>
+          <tr>
+            <td>Stage</td>
+            <td><code>prod_category</code></td>
+            <td>-</td>
+            <td>Used for Truesight exception filtering only.</td>
           </tr>
           <tr>
             <td>Parameter / metric</td>

@@ -436,6 +436,7 @@ def normalize_truesight_event(raw: dict[str, Any]) -> CanonicalEvent:
         notification_group=stringify(raw.get("resp") or raw.get("six_notification_group")),
         notification_type=derive_truesight_notification_type(raw),
         raw=raw,
+        stage=stringify(raw.get("prod_category")).upper(),
         ingestion_notes=tuple(notes),
     )
 
@@ -482,6 +483,7 @@ def normalize_bhom_event(raw: dict[str, Any]) -> CanonicalEvent:
         notification_group=stringify(raw.get("six_notification_group")),
         notification_type=notification_type,
         raw=raw,
+        stage="",
         ingestion_notes=tuple(notes),
     )
 

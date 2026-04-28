@@ -17,6 +17,7 @@ Current workflow expects:
 
 - a Truesight BAROC dump
 - a BHOM JSON dump
+- optionally, a CSV exception file for Truesight exclusions
 
 Example files in `input/`:
 
@@ -29,6 +30,15 @@ Example files in `input/`:
 python3 evdiff.py \
   --truesight input/truesight_20260423110000-20260423120000.baroc \
   --bhom input/BHOM_20260423110000-20260423120000.json
+```
+
+With an exception file:
+
+```bash
+python3 evdiff.py \
+  --truesight input/truesight_20260423110000-20260423120000.baroc \
+  --bhom input/bhom.jsonl \
+  --exceptions input/exceptions.csv
 ```
 
 You can override the output directory:
@@ -86,17 +96,18 @@ open output/index.html
 The current implementation focuses on critical-event comparison:
 
 1. Load and normalize Truesight and BHOM events
-2. Limit the analyzed event set to the shared time window when the Truesight and BHOM sample ranges differ
-3. Keep candidate search on the full opposite source so time-clamped analysis can still match events outside the overlap when the scoring logic supports it
-4. Match Truesight critical events to BHOM events
-5. Split results into:
+2. Optionally exclude Truesight events that match exception rules
+3. Limit the analyzed event set to the shared time window when the Truesight and BHOM sample ranges differ
+4. Keep candidate search on the full opposite source so time-clamped analysis can still match events outside the overlap when the scoring logic supports it
+5. Match Truesight critical events to BHOM events
+6. Split results into:
    - matched to BHOM critical
    - matched to BHOM non-critical
    - ambiguous
    - unmatched
-6. Run the reverse view for BHOM critical events
-7. Compare responsibility and notification type alignment for accepted matches
-8. Generate HTML, JSON, and CSV outputs
+7. Run the reverse view for BHOM critical events
+8. Compare responsibility and notification type alignment for accepted matches
+9. Generate HTML, JSON, and CSV outputs
 
 The browser report includes:
 
@@ -111,6 +122,8 @@ Matching uses a weighted score based on signals such as object class, canonical 
 
 - Truesight input should be BAROC.
 - BHOM input can be either the wrapped export JSON used in this project or line-delimited JSON (`.jsonl`) with one event or hit document per line.
+- Truesight `stage` is normalized from `prod_category`.
+- Exception files are CSV using the fixed column order `stage`, `host`, `object class`, `instance`, `parameter`, `msg`; a header row is optional. Populated cells are treated as regex filters, and both blank cells and a literal `*` behave like wildcards (`.*`).
 - For notification comparison, Truesight notification type is derived from `alarm_type`, `resp_type`, and `with_ars`, then compared to BHOM `six_notification_type`.
 - `output/`, `input/`, and `stats/` are ignored by Git in this repository.
 

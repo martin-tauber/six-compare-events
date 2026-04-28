@@ -6,12 +6,37 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lib.exceptions import apply_exception_rules, load_exception_rules
 from lib.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
 from lib.matching import compare_critical_presence
 from lib.models import CanonicalEvent
 
 
 class LoaderTests(unittest.TestCase):
+    def test_truesight_stage_comes_from_prod_category(self) -> None:
+        truesight_payload = """PATROL_EV;
+\tevent_handle='ts-stage';
+\tmc_ueid='ts-stage';
+\tmc_host=swppro1;
+\tmc_object_class=TKS_OSCMD;
+\tmc_object='canonical-instance';
+\tmc_parameter=OScoll;
+\tprod_category='PRODUCTION';
+\tmc_incident_time=1776945829;
+\tstatus=OPEN;
+\tseverity=CRITICAL;
+\tmsg='Disk alert';
+END
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            truesight_path = Path(temp_dir) / "truesight.baroc"
+            truesight_path.write_text(truesight_payload)
+
+            truesight = load_truesight_events(truesight_path)
+
+        self.assertEqual("PRODUCTION", truesight.events[0].stage)
+
     def test_truesight_instance_comes_from_mc_object(self) -> None:
         truesight_payload = """PATROL_EV;
 \tevent_handle='ts-instance';
@@ -59,6 +84,89 @@ END
 
         self.assertEqual("canonical-instance", bhom.events[0].instance_name)
         self.assertEqual("canonical-instance", bhom.events[0].object_name)
+        self.assertEqual("", bhom.events[0].stage)
+
+    def test_exception_rules_filter_matching_truesight_events(self) -> None:
+        exception_csv = """stage,host,object class,instance,parameter,msg
+PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*
+"""
+        event = CanonicalEvent(
+            "truesight",
+            "ts-1",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "instance-a",
+            "instance-a",
+            "OScoll",
+            "",
+            "host-a",
+            "Disk alert on node",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+            "PRODUCTION",
+        )
+        other = CanonicalEvent(
+            "truesight",
+            "ts-2",
+            datetime(2026, 4, 27, 12, 10, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "instance-b",
+            "instance-b",
+            "OScoll",
+            "",
+            "host-b",
+            "Disk alert on another node",
+            "",
+            "",
+            "",
+            "4005",
+            "",
+            {},
+            "TEST",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exception_path = Path(temp_dir) / "exceptions.csv"
+            exception_path.write_text(exception_csv)
+            rules = load_exception_rules(exception_path)
+            kept, excluded, issues = apply_exception_rules([event, other], rules, path=exception_path)
+
+        self.assertEqual(["ts-2"], [item.event_id for item in kept])
+        self.assertEqual(["ts-1"], [item.event_id for item in excluded])
+        self.assertEqual("exception_filtered", issues[0]["kind"])
+        self.assertEqual(1, issues[0]["excluded_count"])
+        self.assertEqual(1, issues[0]["rule_count"])
+
+    def test_exception_rules_can_be_loaded_without_header_row(self) -> None:
+        exception_csv = "PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*\n"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exception_path = Path(temp_dir) / "exceptions.csv"
+            exception_path.write_text(exception_csv)
+            rules = load_exception_rules(exception_path)
+
+        self.assertEqual(1, len(rules))
+        self.assertEqual({"stage", "host", "object_class", "instance_name", "parameter_name", "message"}, set(rules[0].patterns))
+
+    def test_exception_rule_literal_star_behaves_like_wildcard(self) -> None:
+        exception_csv = "*,host-a,*,*,*,*\n"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exception_path = Path(temp_dir) / "exceptions.csv"
+            exception_path.write_text(exception_csv)
+            rules = load_exception_rules(exception_path)
+
+        self.assertEqual(".*", rules[0].patterns["stage"].pattern)
+        self.assertEqual(".*", rules[0].patterns["object_class"].pattern)
+        self.assertEqual(".*", rules[0].patterns["message"].pattern)
 
     def test_fingerprint_match_is_treated_as_definitive(self) -> None:
         truesight = CanonicalEvent(

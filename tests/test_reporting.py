@@ -18,6 +18,7 @@ class ReportingTests(unittest.TestCase):
         summary = {
             "truesight": {
                 "analyzed_event_count": 12,
+                "excluded_critical_event_count": 2,
                 "start_time": "2026-04-23T11:00:00Z",
                 "end_time": "2026-04-23T12:00:00Z",
             },
@@ -38,6 +39,7 @@ class ReportingTests(unittest.TestCase):
             "issues": [
                 {"kind": "partial_export", "materialized_hits": 20, "reported_total": 30},
                 {"kind": "analysis_window_limited", "start_time": "2026-04-23T11:15:00Z", "end_time": "2026-04-23T11:45:00Z"},
+                {"kind": "exception_filtered", "excluded_count": 2, "rule_count": 1, "path": "input/exceptions.csv"},
             ],
         }
         truesight_to_bhom = {
@@ -82,12 +84,30 @@ class ReportingTests(unittest.TestCase):
                 }
             ],
             "unmatched": [],
+            "filtered": [
+                {
+                    "truesight_event": {
+                        "source": "truesight",
+                        "event_id": "ts-filtered",
+                        "object_class": "A",
+                        "object_name": "objf",
+                        "instance_name": "objf",
+                        "host": "hostf",
+                        "severity": "CRITICAL",
+                        "creation_time": "tf",
+                        "notification_group": "4005",
+                        "message": "filtered message",
+                        "stage": "PRODUCTION",
+                    },
+                    "reason": "Excluded by exception rule.",
+                }
+            ],
         }
 
         payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom)
 
         self.assertEqual(
-            ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched"],
+            ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched", "filtered"],
             [section["id"] for section in payload["sections"]],
         )
         self.assertEqual(2, len(payload["sections"][0]["rows"]))
@@ -142,6 +162,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Mapping documentation", html)
         self.assertIn("Matching documentation", html)
         self.assertIn("Truesight analysed", html)
+        self.assertIn("Taken into account", html)
         self.assertIn("BHOM analysed", html)
         self.assertIn("Events: 12", html)
         self.assertIn("Events: 20", html)
@@ -191,6 +212,8 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("issue-icon", html)
         self.assertIn("BHOM export is partial", html)
         self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", html)
+        self.assertIn("Truesight exception rules filtered 2 events using 1 rule(s) from input/exceptions.csv.", html)
+        self.assertIn("2 filtered", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)
         self.assertIn("75.00% coverage", html)
@@ -200,6 +223,9 @@ class ReportingTests(unittest.TestCase):
         self.assertIn('"responsibility_alignment": "mismatch"', html)
         self.assertIn('"notification_alignment": "mismatch"', html)
         self.assertIn("No BHOM candidate", html)
+        self.assertIn("Filtered", html)
+        self.assertIn("Excluded by exception rule.", html)
+        self.assertIn("ts-filtered", html)
         self.assertIn("Matching documentation", docs_html)
         self.assertIn("Candidate collection", docs_html)
         self.assertIn("Mapping documentation", mapping_html)
@@ -211,6 +237,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("<code>mc_object</code>", mapping_html)
         self.assertIn("<code>instancename</code>", mapping_html)
         self.assertIn("<code>instance_name</code>", docs_html)
+        self.assertIn("exception", docs_html)
         self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", docs_html)
         self.assertIn("Statistics", stats_html)
         self.assertIn("Current run", stats_html)

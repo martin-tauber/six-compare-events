@@ -25,6 +25,7 @@ class CanonicalEvent:
     notification_group: str
     notification_type: str
     raw: dict[str, Any]
+    stage: str = ""
     ingestion_notes: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
@@ -46,6 +47,7 @@ class CanonicalEvent:
             "source_identifier": self.source_identifier,
             "notification_group": self.notification_group,
             "notification_type": self.notification_type,
+            "stage": self.stage,
             "ingestion_notes": list(self.ingestion_notes),
         }
 

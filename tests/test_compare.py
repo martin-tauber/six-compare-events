@@ -112,9 +112,44 @@ END
         self.assertEqual("canonical-instance", bhom.events[0].object_name)
         self.assertEqual("", bhom.events[0].stage)
 
+    def test_bhom_concatenated_multiline_json_objects_are_loaded(self) -> None:
+        bhom_payload = """{
+  "creation_time": 1776945829000,
+  "severity": "CRITICAL",
+  "status": "OPEN",
+  "object_class": "TKS_OSCMD",
+  "instancename": "instance-1",
+  "source_hostname": "swppro1.dmz.six-group.net",
+  "_identifier": "bhom-ml-1",
+  "six_notification_group": "4005",
+  "msg": "Disk alert"
+}
+{
+  "creation_time": 1776945830000,
+  "severity": "WARNING",
+  "status": "OPEN",
+  "object_class": "TKS_OSCMD",
+  "instancename": "instance-2",
+  "source_hostname": "swppro1.dmz.six-group.net",
+  "_identifier": "bhom-ml-2",
+  "six_notification_group": "4005",
+  "msg": "Disk alert"
+}
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bhom_path = Path(temp_dir) / "bhom.jsonl"
+            bhom_path.write_text(bhom_payload)
+
+            bhom = load_bhom_events(bhom_path)
+
+        self.assertEqual("jsonl", bhom.metadata["parser"])
+        self.assertEqual(2, bhom.metadata["event_count"])
+        self.assertEqual(["bhom-ml-1", "bhom-ml-2"], [event.event_id for event in bhom.events])
+
     def test_exception_rules_filter_matching_truesight_events(self) -> None:
-        exception_csv = """stage,host,object class,instance,parameter,msg
-PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*
+        exception_csv = """stage,host,object class,instance,parameter,msg,reason
+PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
 """
         event = CanonicalEvent(
             "truesight",
@@ -166,13 +201,14 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*
             kept, excluded, issues = apply_exception_rules([event, other], rules, path=exception_path)
 
         self.assertEqual(["ts-2"], [item.event_id for item in kept])
-        self.assertEqual(["ts-1"], [item.event_id for item in excluded])
+        self.assertEqual(["ts-1"], [item["truesight_event"].event_id for item in excluded])
+        self.assertEqual("Known maintenance window", excluded[0]["reason"])
         self.assertEqual("exception_filtered", issues[0]["kind"])
         self.assertEqual(1, issues[0]["excluded_count"])
         self.assertEqual(1, issues[0]["rule_count"])
 
     def test_exception_rules_can_be_loaded_without_header_row(self) -> None:
-        exception_csv = "PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*\n"
+        exception_csv = "PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,comment text\n"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             exception_path = Path(temp_dir) / "exceptions.csv"
@@ -181,6 +217,7 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*
 
         self.assertEqual(1, len(rules))
         self.assertEqual({"stage", "host", "object_class", "instance_name", "parameter_name", "message"}, set(rules[0].patterns))
+        self.assertEqual("comment text", rules[0].reason)
 
     def test_exception_rule_literal_star_behaves_like_wildcard(self) -> None:
         exception_csv = "*,host-a,*,*,*,*\n"

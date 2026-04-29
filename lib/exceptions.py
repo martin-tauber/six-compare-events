@@ -21,6 +21,8 @@ HEADER_MAP = {
     "parameter_name": "parameter_name",
     "msg": "message",
     "message": "message",
+    "reason": "reason",
+    "comment": "reason",
 }
 
 REQUIRED_HEADERS = ("stage", "host", "object_class", "instance_name", "parameter_name", "message")
@@ -30,6 +32,7 @@ REQUIRED_HEADERS = ("stage", "host", "object_class", "instance_name", "parameter
 class ExceptionRule:
     line_number: int
     patterns: dict[str, re.Pattern[str]]
+    reason: str = ""
 
     def matches(self, event: CanonicalEvent) -> bool:
         for field_name, pattern in self.patterns.items():
@@ -64,26 +67,28 @@ def parse_headered_rules(path: Path, rows: list[list[str]]) -> list[ExceptionRul
     rules: list[ExceptionRule] = []
     for offset, values in enumerate(rows[1:], start=2):
         row = {headers[index]: values[index] if index < len(values) else "" for index in range(len(headers))}
-        patterns = compile_rule_patterns(path, offset, row.items())
+        patterns, reason = compile_rule_patterns(path, offset, row.items())
         if patterns:
-            rules.append(ExceptionRule(line_number=offset, patterns=patterns))
+            rules.append(ExceptionRule(line_number=offset, patterns=patterns, reason=reason))
     return rules
 
 
 def parse_headerless_rules(path: Path, rows: list[list[str]]) -> list[ExceptionRule]:
     rules: list[ExceptionRule] = []
     for offset, values in enumerate(rows, start=1):
-        if len(values) > len(REQUIRED_HEADERS):
+        if len(values) > len(REQUIRED_HEADERS) + 1:
             raise ValueError(
-                f"Exception file {path} line {offset} has {len(values)} columns; expected at most {len(REQUIRED_HEADERS)}."
+                f"Exception file {path} line {offset} has {len(values)} columns; expected at most {len(REQUIRED_HEADERS) + 1}."
             )
         row = {
             REQUIRED_HEADERS[index]: values[index] if index < len(values) else ""
             for index in range(len(REQUIRED_HEADERS))
         }
-        patterns = compile_rule_patterns(path, offset, row.items())
+        if len(values) > len(REQUIRED_HEADERS):
+            row["reason"] = values[len(REQUIRED_HEADERS)]
+        patterns, reason = compile_rule_patterns(path, offset, row.items())
         if patterns:
-            rules.append(ExceptionRule(line_number=offset, patterns=patterns))
+            rules.append(ExceptionRule(line_number=offset, patterns=patterns, reason=reason))
     return rules
 
 
@@ -91,14 +96,18 @@ def compile_rule_patterns(
     path: Path,
     line_number: int,
     items: object,
-) -> dict[str, re.Pattern[str]]:
+) -> tuple[dict[str, re.Pattern[str]], str]:
     patterns: dict[str, re.Pattern[str]] = {}
+    reason = ""
     for raw_header, raw_value in items:
         field_name = normalize_header(str(raw_header))
         if not field_name:
             continue
         value = str(raw_value or "").strip()
         if not value:
+            continue
+        if field_name == "reason":
+            reason = value
             continue
         if value == "*":
             value = ".*"
@@ -108,7 +117,7 @@ def compile_rule_patterns(
             raise ValueError(
                 f"Invalid regex in exception file {path} on line {line_number} for {raw_header!r}: {exc}"
             ) from exc
-    return patterns
+    return patterns, reason
 
 
 def sniff_csv_dialect(text: str) -> csv.Dialect:
@@ -124,17 +133,24 @@ def apply_exception_rules(
     rules: list[ExceptionRule],
     *,
     path: str | Path,
-) -> tuple[list[CanonicalEvent], list[CanonicalEvent], list[dict[str, object]]]:
+) -> tuple[list[CanonicalEvent], list[dict[str, object]], list[dict[str, object]]]:
     if not rules:
         return events, [], []
 
     kept: list[CanonicalEvent] = []
-    excluded: list[CanonicalEvent] = []
+    excluded: list[dict[str, object]] = []
     for event in events:
-        if any(rule.matches(event) for rule in rules):
-            excluded.append(event)
-        else:
+        matching_rule = next((rule for rule in rules if rule.matches(event)), None)
+        if matching_rule is None:
             kept.append(event)
+            continue
+        excluded.append(
+            {
+                "truesight_event": event,
+                "reason": matching_rule.reason or "Excluded by exception rule.",
+                "rule_line_number": matching_rule.line_number,
+            }
+        )
 
     issues: list[dict[str, object]] = []
     if excluded:

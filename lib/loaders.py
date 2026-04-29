@@ -110,27 +110,32 @@ def parse_bhom_payload(text: str) -> tuple[list[dict[str, Any]], str, int, int]:
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
-        raw_events, response_count, reported_total = parse_bhom_jsonl(text)
+        raw_events, response_count, reported_total = parse_bhom_json_stream(text)
         return raw_events, "jsonl", response_count, reported_total
 
     raw_events, response_count, reported_total = extract_bhom_raw_events(payload)
     return raw_events, "json", response_count, reported_total
 
 
-def parse_bhom_jsonl(text: str) -> tuple[list[dict[str, Any]], int, int]:
+def parse_bhom_json_stream(text: str) -> tuple[list[dict[str, Any]], int, int]:
     raw_events: list[dict[str, Any]] = []
     response_count = 0
     reported_total = 0
 
-    for raw_line in text.splitlines():
-        stripped = raw_line.strip()
-        if not stripped:
-            continue
-        payload = json.loads(stripped)
+    decoder = json.JSONDecoder()
+    index = 0
+    length = len(text)
+    while index < length:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        payload, next_index = decoder.raw_decode(text, index)
         line_events, line_response_count, line_reported_total = extract_bhom_raw_events(payload)
         raw_events.extend(line_events)
         response_count += line_response_count
         reported_total += line_reported_total
+        index = next_index
 
     return raw_events, response_count, reported_total
 

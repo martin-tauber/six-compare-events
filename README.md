@@ -123,7 +123,7 @@ Matching uses a weighted score based on signals such as object class, canonical 
 - Truesight input should be BAROC.
 - BHOM input can be either the wrapped export JSON used in this project or line-delimited JSON (`.jsonl`) with one event or hit document per line.
 - Truesight `stage` is normalized from `prod_category`.
-- Exception files are CSV using the fixed column order `stage`, `host`, `object class`, `instance`, `parameter`, `msg`; a header row is optional. Populated cells are treated as regex filters, and both blank cells and a literal `*` behave like wildcards (`.*`).
+- Exception files are CSV using the fixed column order `stage`, `host`, `object class`, `instance`, `parameter`, `msg`, `reason`; a header row is optional. The trailing `reason` field acts like a comment and is not used for matching. Populated match cells are treated as regex filters, and both blank cells and a literal `*` behave like wildcards (`.*`).
 - For notification comparison, Truesight notification type is derived from `alarm_type`, `resp_type`, and `with_ars`, then compared to BHOM `six_notification_type`.
 - `output/`, `input/`, and `stats/` are ignored by Git in this repository.
 

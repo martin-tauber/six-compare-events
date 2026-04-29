@@ -48,7 +48,7 @@ def main() -> None:
     truesight = load_truesight_events(args.truesight)
     bhom = load_bhom_events(args.bhom)
     exception_issues: list[dict[str, object]] = []
-    excluded_events: list[object] = []
+    excluded_events: list[dict[str, object]] = []
     truesight_events_source = truesight.events
     if exception_path:
         exception_rules = load_exception_rules(exception_path)
@@ -61,14 +61,15 @@ def main() -> None:
         truesight.metadata["exception_rule_count"] = len(exception_rules)
         truesight.metadata["excluded_event_count"] = len(excluded_events)
         truesight.metadata["excluded_critical_event_count"] = sum(
-            1 for event in excluded_events if event.severity == "CRITICAL"
+            1 for item in excluded_events if item["truesight_event"].severity == "CRITICAL"
         )
     filtered_truesight_events = [
         {
-            "truesight_event": event.as_dict(),
-            "reason": "Excluded by exception rule.",
+            "truesight_event": item["truesight_event"].as_dict(),
+            "reason": str(item["reason"]),
+            "rule_line_number": item["rule_line_number"],
         }
-        for event in excluded_events
+        for item in excluded_events
     ]
 
     truesight_events, bhom_events, analysis_issues = limit_events_to_shared_timeframe(truesight_events_source, bhom.events)

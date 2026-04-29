@@ -24,6 +24,7 @@ class ReportingTests(unittest.TestCase):
             },
             "bhom": {
                 "analyzed_event_count": 20,
+                "excluded_event_count": 1,
                 "start_time": "2026-04-23T11:00:00Z",
                 "end_time": "2026-04-23T12:00:00Z",
             },
@@ -40,6 +41,7 @@ class ReportingTests(unittest.TestCase):
                 {"kind": "partial_export", "materialized_hits": 20, "reported_total": 30},
                 {"kind": "analysis_window_limited", "start_time": "2026-04-23T11:15:00Z", "end_time": "2026-04-23T11:45:00Z"},
                 {"kind": "exception_filtered", "excluded_count": 2, "rule_count": 1, "path": "input/exceptions.csv"},
+                {"kind": "bhom_filtered", "excluded_count": 1, "rule_count": 1, "path": "input/bhom-exceptions.csv"},
             ],
         }
         truesight_to_bhom = {
@@ -103,11 +105,31 @@ class ReportingTests(unittest.TestCase):
                 }
             ],
         }
+        bhom_to_truesight = {
+            "filtered": [
+                {
+                    "bhom_event": {
+                        "source": "bhom",
+                        "event_id": "bh-filtered",
+                        "stage": "",
+                        "object_class": "A",
+                        "object_name": "objb",
+                        "instance_name": "objb",
+                        "host": "hostb",
+                        "severity": "WARNING",
+                        "creation_time": "tb",
+                        "notification_group": "4999",
+                        "message": "bhom filtered message",
+                    },
+                    "reason": "Filtered from BHOM candidates.",
+                }
+            ]
+        }
 
-        payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom)
+        payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom, bhom_to_truesight=bhom_to_truesight)
 
         self.assertEqual(
-            ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched", "filtered"],
+            ["matched", "severity-mismatch", "responsibility-mismatch", "notification-mismatch", "ambiguous", "unmatched", "filtered", "bhom-filtered"],
             [section["id"] for section in payload["sections"]],
         )
         self.assertEqual(2, len(payload["sections"][0]["rows"]))
@@ -117,7 +139,7 @@ class ReportingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             report_path = Path(temp_dir) / "index.html"
-            write_browser_report(report_path, summary=summary, truesight_to_bhom=truesight_to_bhom)
+            write_browser_report(report_path, summary=summary, truesight_to_bhom=truesight_to_bhom, bhom_to_truesight=bhom_to_truesight)
             html = report_path.read_text()
             mapping_path = Path(temp_dir) / "mapping_documentation.html"
             write_mapping_documentation(mapping_path, summary={**summary, "bhom_to_truesight": {"unmatched_count": 3}})
@@ -166,6 +188,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("BHOM analysed", html)
         self.assertIn("Events: 12", html)
         self.assertIn("Events: 20", html)
+        self.assertIn("Filtered: 1", html)
         self.assertIn("Start: 2026-04-23 11:00:00 UTC", html)
         self.assertIn("End: 2026-04-23 12:00:00 UTC", html)
         self.assertIn('"score_breakdown"', html)
@@ -212,6 +235,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("BHOM export is partial", html)
         self.assertIn("Analysis was limited to the shared timeframe 2026-04-23 11:15:00 UTC to 2026-04-23 11:45:00 UTC.", html)
         self.assertIn("Truesight exception rules filtered 2 events using 1 rule(s) from input/exceptions.csv.", html)
+        self.assertIn("BHOM filter rules excluded 1 events using 1 rule(s) from input/bhom-exceptions.csv.", html)
         self.assertIn("2 filtered", html)
         self.assertIn("10.00%", html)
         self.assertIn("80.00% coverage", html)
@@ -225,6 +249,8 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Filtered", html)
         self.assertIn("Excluded by exception rule.", html)
         self.assertIn("ts-filtered", html)
+        self.assertIn("bh-filtered", html)
+        self.assertIn("Filtered from BHOM candidates.", html)
         self.assertIn("Object class", html)
         self.assertIn("Instance", html)
         self.assertIn("PRODUCTION", html)

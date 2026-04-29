@@ -10,6 +10,7 @@ from .models import CanonicalEvent
 
 HEADER_MAP = {
     "stage": "stage",
+    "severity": "severity",
     "host": "host",
     "object class": "object_class",
     "object_class": "object_class",
@@ -25,7 +26,8 @@ HEADER_MAP = {
     "comment": "reason",
 }
 
-REQUIRED_HEADERS = ("stage", "host", "object_class", "instance_name", "parameter_name", "message")
+REQUIRED_HEADERS = ("stage", "severity", "host", "object_class", "instance_name", "parameter_name", "message")
+LEGACY_REQUIRED_HEADERS = ("stage", "host", "object_class", "instance_name", "parameter_name", "message")
 
 
 @dataclass(frozen=True)
@@ -55,9 +57,23 @@ def load_exception_rules(path: str | Path) -> list[ExceptionRule]:
 
     normalized_headers = [normalize_header(field_name) for field_name in rows[0]]
     has_header = all(header in normalized_headers for header in REQUIRED_HEADERS)
+    has_legacy_header = all(header in normalized_headers for header in LEGACY_REQUIRED_HEADERS)
 
     if has_header:
         return parse_headered_rules(file_path, rows)
+    if has_legacy_header:
+        return parse_headered_rules(file_path, rows)
+
+    recognized_headers = [header for header in normalized_headers if header]
+    if recognized_headers:
+        missing = [
+            header
+            for header in REQUIRED_HEADERS
+            if header not in normalized_headers and header != "severity"
+        ]
+        raise ValueError(
+            f"Exception file {file_path} is missing required columns: {', '.join(missing)}."
+        )
 
     return parse_headerless_rules(file_path, rows)
 
@@ -80,12 +96,14 @@ def parse_headerless_rules(path: Path, rows: list[list[str]]) -> list[ExceptionR
             raise ValueError(
                 f"Exception file {path} line {offset} has {len(values)} columns; expected at most {len(REQUIRED_HEADERS) + 1}."
             )
+        uses_legacy_layout = len(values) <= len(LEGACY_REQUIRED_HEADERS) + 1
+        headers = LEGACY_REQUIRED_HEADERS if uses_legacy_layout else REQUIRED_HEADERS
         row = {
-            REQUIRED_HEADERS[index]: values[index] if index < len(values) else ""
-            for index in range(len(REQUIRED_HEADERS))
+            headers[index]: values[index] if index < len(values) else ""
+            for index in range(len(headers))
         }
-        if len(values) > len(REQUIRED_HEADERS):
-            row["reason"] = values[len(REQUIRED_HEADERS)]
+        if len(values) > len(headers):
+            row["reason"] = values[len(headers)]
         patterns, reason = compile_rule_patterns(path, offset, row.items())
         if patterns:
             rules.append(ExceptionRule(line_number=offset, patterns=patterns, reason=reason))
@@ -134,6 +152,47 @@ def apply_exception_rules(
     *,
     path: str | Path,
 ) -> tuple[list[CanonicalEvent], list[dict[str, object]], list[dict[str, object]]]:
+    return apply_filter_rules(
+        events,
+        rules,
+        path=path,
+        source="truesight",
+        event_key="truesight_event",
+        issue_kind="exception_filtered",
+        issue_message="Truesight events were excluded by exception rules.",
+        default_reason="Excluded by exception rule.",
+    )
+
+
+def apply_bhom_filter_rules(
+    events: list[CanonicalEvent],
+    rules: list[ExceptionRule],
+    *,
+    path: str | Path,
+) -> tuple[list[CanonicalEvent], list[dict[str, object]], list[dict[str, object]]]:
+    return apply_filter_rules(
+        events,
+        rules,
+        path=path,
+        source="bhom",
+        event_key="bhom_event",
+        issue_kind="bhom_filtered",
+        issue_message="BHOM events were excluded by filter rules.",
+        default_reason="Excluded by BHOM filter rule.",
+    )
+
+
+def apply_filter_rules(
+    events: list[CanonicalEvent],
+    rules: list[ExceptionRule],
+    *,
+    path: str | Path,
+    source: str,
+    event_key: str,
+    issue_kind: str,
+    issue_message: str,
+    default_reason: str,
+) -> tuple[list[CanonicalEvent], list[dict[str, object]], list[dict[str, object]]]:
     if not rules:
         return events, [], []
 
@@ -146,8 +205,8 @@ def apply_exception_rules(
             continue
         excluded.append(
             {
-                "truesight_event": event,
-                "reason": matching_rule.reason or "Excluded by exception rule.",
+                event_key: event,
+                "reason": matching_rule.reason or default_reason,
                 "rule_line_number": matching_rule.line_number,
             }
         )
@@ -156,9 +215,9 @@ def apply_exception_rules(
     if excluded:
         issues.append(
             {
-                "source": "truesight",
-                "kind": "exception_filtered",
-                "message": "Truesight events were excluded by exception rules.",
+                "source": source,
+                "kind": issue_kind,
+                "message": issue_message,
                 "path": str(path),
                 "excluded_count": len(excluded),
                 "rule_count": len(rules),
@@ -184,6 +243,8 @@ def exception_value(event: CanonicalEvent, field_name: str) -> str:
         return event.message
     if field_name == "stage":
         return event.stage
+    if field_name == "severity":
+        return event.severity
     if field_name == "host":
         return event.host
     return ""

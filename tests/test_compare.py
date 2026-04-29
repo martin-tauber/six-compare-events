@@ -6,8 +6,8 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from evdiff import normalize_excluded_events
-from lib.exceptions import apply_exception_rules, load_exception_rules
+from evdiff import normalize_filtered_events
+from lib.exceptions import apply_bhom_filter_rules, apply_exception_rules, load_exception_rules
 from lib.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
 from lib.matching import compare_critical_presence
 from lib.models import CanonicalEvent
@@ -149,8 +149,8 @@ END
         self.assertEqual(["bhom-ml-1", "bhom-ml-2"], [event.event_id for event in bhom.events])
 
     def test_exception_rules_filter_matching_truesight_events(self) -> None:
-        exception_csv = """stage,host,object class,instance,parameter,msg,reason
-PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
+        exception_csv = """stage,severity,host,object class,instance,parameter,msg,reason
+PROD.*,CRIT.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
 """
         event = CanonicalEvent(
             "truesight",
@@ -209,7 +209,7 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
         self.assertEqual(1, issues[0]["rule_count"])
 
     def test_exception_rules_can_be_loaded_without_header_row(self) -> None:
-        exception_csv = "PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,comment text\n"
+        exception_csv = "PROD.*,CRIT.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,comment text\n"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             exception_path = Path(temp_dir) / "exceptions.csv"
@@ -217,11 +217,14 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
             rules = load_exception_rules(exception_path)
 
         self.assertEqual(1, len(rules))
-        self.assertEqual({"stage", "host", "object_class", "instance_name", "parameter_name", "message"}, set(rules[0].patterns))
+        self.assertEqual(
+            {"stage", "severity", "host", "object_class", "instance_name", "parameter_name", "message"},
+            set(rules[0].patterns),
+        )
         self.assertEqual("comment text", rules[0].reason)
 
     def test_exception_rule_literal_star_behaves_like_wildcard(self) -> None:
-        exception_csv = "*,host-a,*,*,*,*\n"
+        exception_csv = "*,*,host-a,*,*,*,*\n"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             exception_path = Path(temp_dir) / "exceptions.csv"
@@ -229,10 +232,68 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
             rules = load_exception_rules(exception_path)
 
         self.assertEqual(".*", rules[0].patterns["stage"].pattern)
+        self.assertEqual(".*", rules[0].patterns["severity"].pattern)
         self.assertEqual(".*", rules[0].patterns["object_class"].pattern)
         self.assertEqual(".*", rules[0].patterns["message"].pattern)
 
-    def test_normalize_excluded_events_accepts_legacy_raw_events(self) -> None:
+    def test_bhom_filter_rules_exclude_matching_bhom_events(self) -> None:
+        exception_csv = "stage,severity,host,object class,instance,parameter,msg,reason\n,CRIT.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,BHOM maintenance\n"
+        event = CanonicalEvent(
+            "bhom",
+            "bh-1",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "instance-a",
+            "instance-a",
+            "OScoll",
+            "",
+            "host-a",
+            "Disk alert on host",
+            "",
+            "",
+            "",
+            "4005",
+            "ONCALL",
+            {},
+            "",
+        )
+        other = CanonicalEvent(
+            "bhom",
+            "bh-2",
+            datetime(2026, 4, 27, 12, 5, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "instance-b",
+            "instance-b",
+            "OScoll",
+            "",
+            "host-b",
+            "Other disk alert",
+            "",
+            "",
+            "",
+            "4005",
+            "ONCALL",
+            {},
+            "",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exception_path = Path(temp_dir) / "bhom-exceptions.csv"
+            exception_path.write_text(exception_csv)
+            rules = load_exception_rules(exception_path)
+            kept, excluded, issues = apply_bhom_filter_rules([event, other], rules, path=exception_path)
+
+        self.assertEqual(["bh-2"], [item.event_id for item in kept])
+        self.assertEqual(["bh-1"], [item["bhom_event"].event_id for item in excluded])
+        self.assertEqual("BHOM maintenance", excluded[0]["reason"])
+        self.assertEqual("bhom_filtered", issues[0]["kind"])
+        self.assertEqual(1, issues[0]["excluded_count"])
+
+    def test_normalize_filtered_events_accepts_legacy_raw_events(self) -> None:
         event = CanonicalEvent(
             "truesight",
             "ts-legacy",
@@ -254,7 +315,7 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
             "PROD",
         )
 
-        normalized = normalize_excluded_events([event])
+        normalized = normalize_filtered_events([event], event_key="truesight_event")
 
         self.assertEqual(1, len(normalized))
         self.assertIs(event, normalized[0]["truesight_event"])

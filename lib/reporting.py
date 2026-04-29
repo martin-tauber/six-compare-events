@@ -12,9 +12,10 @@ def write_browser_report(
     *,
     summary: dict[str, Any],
     truesight_to_bhom: dict[str, Any],
+    bhom_to_truesight: dict[str, Any] | None = None,
 ) -> None:
     path = Path(output_path)
-    payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom)
+    payload = build_browser_payload(summary=summary, truesight_to_bhom=truesight_to_bhom, bhom_to_truesight=bhom_to_truesight)
     path.write_text(render_browser_html(payload), encoding="utf-8")
 
 
@@ -84,6 +85,12 @@ def build_issue_notes(issues: list[dict[str, Any]], *, docs_mode: bool = False) 
                 f"Truesight exception rules filtered {issue.get('excluded_count', 0)} events"
                 f" using {issue.get('rule_count', 0)} rule(s){path_note}."
             )
+        elif issue.get("kind") == "bhom_filtered":
+            path_note = f" from {issue.get('path', '')}" if issue.get("path") else ""
+            notes.append(
+                f"BHOM filter rules excluded {issue.get('excluded_count', 0)} events"
+                f" using {issue.get('rule_count', 0)} rule(s){path_note}."
+            )
     return notes
 
 
@@ -91,6 +98,7 @@ def build_browser_payload(
     *,
     summary: dict[str, Any],
     truesight_to_bhom: dict[str, Any],
+    bhom_to_truesight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     matched_critical_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_critical"]]
     severity_mismatch_rows = [flatten_matched_row(row) for row in truesight_to_bhom["matched_to_noncritical"]]
@@ -152,6 +160,12 @@ def build_browser_payload(
                 "label": "Filtered",
                 "description": "Truesight events excluded by exception rules before matching.",
                 "rows": [flatten_filtered_row(row) for row in truesight_to_bhom.get("filtered", [])],
+            },
+            {
+                "id": "bhom-filtered",
+                "label": "BHOM filtered",
+                "description": "BHOM events excluded by BHOM filter rules before matching.",
+                "rows": [flatten_bhom_filtered_row(row) for row in (bhom_to_truesight or {}).get("filtered", [])],
             },
         ],
     }
@@ -336,6 +350,49 @@ def flatten_filtered_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def flatten_bhom_filtered_row(row: dict[str, Any]) -> dict[str, Any]:
+    bhom_event = row["bhom_event"]
+    return {
+        "kind": "bhom-filtered",
+        "truesight_event_id": "",
+        "bhom_event_id": bhom_event["event_id"],
+        "message": bhom_event["message"],
+        "host": bhom_event["host"],
+        "stage": bhom_event.get("stage", ""),
+        "object_class": bhom_event["object_class"],
+        "instance_name": bhom_event.get("instance_name", ""),
+        "truesight_severity": "",
+        "bhom_severity": bhom_event["severity"],
+        "truesight_responsibility": "",
+        "bhom_responsibility": bhom_event["notification_group"],
+        "responsibility_alignment": "",
+        "notification_alignment": "",
+        "truesight_creation_time": "",
+        "bhom_creation_time": bhom_event["creation_time"],
+        "notification_group": bhom_event["notification_group"],
+        "confidence": "",
+        "score": "",
+        "matched_on": "",
+        "reason": row["reason"],
+        "search_text": " ".join(
+            [
+                bhom_event["event_id"],
+                bhom_event["object_class"],
+                bhom_event.get("instance_name") or bhom_event.get("object_name", ""),
+                bhom_event.get("stage", ""),
+                bhom_event["host"],
+                bhom_event["message"],
+                bhom_event["severity"],
+                row["reason"],
+            ]
+        ).lower(),
+        "details": {
+            "bhom_event": bhom_event,
+            "reason": row["reason"],
+        },
+    }
+
+
 def render_browser_html(payload: dict[str, Any]) -> str:
     data_json = json.dumps(payload, indent=2).replace("</", "<\\/")
     ts_summary = payload["summary"]["truesight_to_bhom"]
@@ -359,6 +416,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
     issues = payload["summary"].get("issues", [])
     truesight_meta = payload["summary"].get("truesight", {})
     bhom_meta = payload["summary"].get("bhom", {})
+    bhom_filtered_count = int(bhom_meta.get("excluded_event_count", 0) or 0)
     issue_notes = build_issue_notes(issues)
 
     return f"""<!DOCTYPE html>
@@ -824,6 +882,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
         <div class="meta-card">
           <strong>BHOM analysed</strong>
           <div class="subtle">Events: {bhom_meta.get('analyzed_event_count', bhom_meta.get('event_count', '-'))}</div>
+          <div class="subtle">Filtered: {bhom_filtered_count}</div>
           <div class="subtle">Start: {escape(format_header_timestamp(str(bhom_meta.get('start_time', ''))))}</div>
           <div class="subtle">End: {escape(format_header_timestamp(str(bhom_meta.get('end_time', ''))))}</div>
         </div>
@@ -970,6 +1029,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
               ],
             }};
           case "filtered":
+          case "bhom-filtered":
             return {{
               comparisonColumns: [
                 "Stage",
@@ -1057,6 +1117,7 @@ def render_browser_html(payload: dict[str, Any]) -> str:
                 renderIdentifierStack(row.bhom_severity, "Copy BHOM event ID"),
               ];
             case "filtered":
+            case "bhom-filtered":
               return [
                 escapeHtml(row.stage || "-"),
                 escapeHtml(row.object_class || "-"),
@@ -1422,13 +1483,14 @@ def render_matching_documentation_html(summary: dict[str, Any]) -> str:
     </section>
 
     <section class="panel">
-      <h2>6. Exception rules</h2>
-      <p>An optional exception CSV can exclude Truesight events before timeframe limiting and before matching. These excluded events are treated as out of scope for the run.</p>
+      <h2>6. Filter rules</h2>
+      <p>Optional filter CSV files can exclude Truesight events and BHOM events before timeframe limiting and before matching. These excluded events are treated as out of scope for the run.</p>
       <ul>
-        <li>Expected headers: <code>stage</code>, <code>host</code>, <code>object class</code>, <code>instance</code>, <code>parameter</code>, <code>msg</code></li>
+        <li>Expected headers: <code>stage</code>, <code>severity</code>, <code>host</code>, <code>object class</code>, <code>instance</code>, <code>parameter</code>, <code>msg</code>, <code>reason</code></li>
         <li>Each populated cell is interpreted as a regular expression.</li>
-        <li>Blank cells behave like wildcards.</li>
-        <li>Rules apply only to Truesight events.</li>
+        <li>Blank cells and a literal <code>*</code> both behave like wildcards.</li>
+        <li>The optional trailing <code>reason</code> value is shown in filtered-event output but is not used for matching.</li>
+        <li>The same rule format is used for Truesight exclusions and BHOM candidate filtering.</li>
       </ul>
     </section>
 
@@ -1578,7 +1640,7 @@ def render_mapping_documentation_html(summary: dict[str, Any]) -> str:
             <td>Stage</td>
             <td><code>prod_category</code></td>
             <td>-</td>
-            <td>Used for Truesight exception filtering only.</td>
+            <td>Used for rule filtering. Truesight populates it from <code>prod_category</code>; BHOM is usually blank.</td>
           </tr>
           <tr>
             <td>Parameter / metric</td>

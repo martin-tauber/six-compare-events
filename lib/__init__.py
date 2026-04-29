@@ -1,4 +1,4 @@
-from .exceptions import apply_exception_rules, load_exception_rules
+from .exceptions import apply_bhom_filter_rules, apply_exception_rules, load_exception_rules
 from .loaders import load_bhom_events, load_truesight_events
 from .matching import analyze_critical_events, compare_critical_presence
 from .models import CanonicalEvent, LoadResult
@@ -12,6 +12,7 @@ from .reporting import (
 
 __all__ = [
     "analyze_critical_events",
+    "apply_bhom_filter_rules",
     "apply_exception_rules",
     "build_browser_payload",
     "CanonicalEvent",

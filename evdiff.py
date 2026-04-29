@@ -4,6 +4,7 @@ import argparse
 import csv
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -52,11 +53,12 @@ def main() -> None:
     truesight_events_source = truesight.events
     if exception_path:
         exception_rules = load_exception_rules(exception_path)
-        truesight_events_source, excluded_events, exception_issues = apply_exception_rules(
+        truesight_events_source, excluded_events_raw, exception_issues = apply_exception_rules(
             truesight.events,
             exception_rules,
             path=exception_path,
         )
+        excluded_events = normalize_excluded_events(excluded_events_raw)
         truesight.metadata["exception_file"] = str(exception_path)
         truesight.metadata["exception_rule_count"] = len(exception_rules)
         truesight.metadata["excluded_event_count"] = len(excluded_events)
@@ -299,6 +301,28 @@ def append_jsonl(path: Path, payload: object) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, sort_keys=True))
         handle.write("\n")
+
+
+def normalize_excluded_events(excluded_items: list[object]) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for item in excluded_items:
+        if isinstance(item, Mapping) and "truesight_event" in item:
+            normalized.append(
+                {
+                    "truesight_event": item["truesight_event"],
+                    "reason": str(item.get("reason") or "Excluded by exception rule."),
+                    "rule_line_number": item.get("rule_line_number"),
+                }
+            )
+            continue
+        normalized.append(
+            {
+                "truesight_event": item,
+                "reason": "Excluded by exception rule.",
+                "rule_line_number": None,
+            }
+        )
+    return normalized
 
 
 def enrich_source_metadata(metadata: dict[str, object], events: list[object]) -> dict[str, object]:

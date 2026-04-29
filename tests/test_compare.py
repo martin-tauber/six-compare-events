@@ -6,6 +6,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
+from evdiff import normalize_excluded_events
 from lib.exceptions import apply_exception_rules, load_exception_rules
 from lib.loaders import load_bhom_events, load_truesight_events, parse_truesight_baroc
 from lib.matching import compare_critical_presence
@@ -230,6 +231,35 @@ PROD.*,host-a,TKS_OSCMD,instance-a,OScoll,Disk.*,Known maintenance window
         self.assertEqual(".*", rules[0].patterns["stage"].pattern)
         self.assertEqual(".*", rules[0].patterns["object_class"].pattern)
         self.assertEqual(".*", rules[0].patterns["message"].pattern)
+
+    def test_normalize_excluded_events_accepts_legacy_raw_events(self) -> None:
+        event = CanonicalEvent(
+            "truesight",
+            "ts-legacy",
+            datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC),
+            "OPEN",
+            "CRITICAL",
+            "TKS_OSCMD",
+            "instance-a",
+            "instance-a",
+            "OScoll",
+            "",
+            "host-a",
+            "Disk alert",
+            "",
+            "",
+            "",
+            "",
+            {},
+            "PROD",
+        )
+
+        normalized = normalize_excluded_events([event])
+
+        self.assertEqual(1, len(normalized))
+        self.assertIs(event, normalized[0]["truesight_event"])
+        self.assertEqual("Excluded by exception rule.", normalized[0]["reason"])
+        self.assertIsNone(normalized[0]["rule_line_number"])
 
     def test_fingerprint_match_is_treated_as_definitive(self) -> None:
         truesight = CanonicalEvent(
